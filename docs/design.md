@@ -41,6 +41,84 @@ will never push millions of messages a second, and claiming it as a product
 number would be dishonest. Nor is scale in rooms: one broker holding one busy
 room is the interesting case, since a stream shard has a single owner.
 
+## How these are normally built
+
+Nothing in this design is a new idea about collaborative editing. The merge rule
+below is the one Figma already uses. What is unusual is the layer underneath it,
+so it is worth being precise about what that layer normally is.
+
+Three shapes dominate, and they differ mostly in where the merge happens:
+
+| Shape | Merge runs | Examples | The server is |
+|---|---|---|---|
+| Authoritative document process | On the server, over a total order it defines | Google Docs (OT), Figma (LWW per property) | A stateful process owning one document in memory |
+| CRDT plus a relay | In every client, independently | Yjs with `y-websocket`, Automerge, PartyKit | A relay that also persists — still usually one room per process |
+| Managed realtime service | Wherever the vendor put it | Firebase, Supabase Realtime, Liveblocks, Ably | Someone else's problem, at someone else's price |
+
+Self-hosted, the first two assemble from roughly the same parts:
+
+- **A WebSocket tier** terminating browsers, with **sticky routing** so every client in a room reaches the process holding it.
+- **Redis pub/sub or NATS** to fan a room's updates across that tier when they do not.
+- **Postgres or object storage** for the document of record and its snapshots.
+- **Kafka**, eventually, when history or audit turns out to be a requirement after all.
+- **A separate presence path**, usually Redis keys with a TTL, kept away from the durable one because cursors at 60 Hz would swamp it.
+
+That stack works. Most of the collaborative software you have used is built from
+it. Its seams are in known places:
+
+**The order of truth is split across systems.** Redis has one order, Postgres
+another, Kafka a third, and none of them is defined relative to the others. On
+reconnect, which one should the client believe? The common answer is none of
+them — refetch the whole document.
+
+**A drop is invisible.** Redis pub/sub is at-most-once and carries no offsets.
+When a relay's per-client buffer fills it drops, and the client has no way to
+learn that it did. A canvas that missed one op renders a wrong picture and never
+finds out. This is the failure the usual stack handles worst, and it is why
+reloading the page is collaborative software's universal repair.
+
+**Live and historical are different code paths.** The live path is a socket, the
+history path is a table or a topic. Replay, time travel and "catch me up from
+where I was" get written twice, against two sources that can disagree.
+
+**The relay is stateful, which makes it a liability.** A document lives in one
+process's memory, so the application inherits sticky sessions, rehydration on
+every deploy, and a placement problem of its own to solve.
+
+**Fanout is billed per connection.** A relay that serializes once per client pays
+500× for 500 viewers, which is why viewer-heavy rooms are where these systems
+first get expensive.
+
+### What changes when the substrate is a log
+
+This design keeps the merge rule and replaces what sits under it: one durable
+stream per room, one ephemeral stream for cursors, one cache key for snapshots.
+The seams above stop being application work and become properties of the broker.
+
+| Seam | Usual stack | Here |
+|---|---|---|
+| Order of truth | Split across Redis, Postgres, Kafka | One shard, one offset sequence, no second opinion |
+| Drop detection | Silent | A gap in offsets, which is an error the client recovers from |
+| Catch-up vs. history | Two paths, two sources | `subscribe_from(offset)` — the same call for both |
+| Slow client | A buffer policy hand-written in the relay | A bounded per-subscriber queue with a declared overflow policy |
+| Fanout cost | Encode per connection | Encoded once, shared by every subscriber |
+| Relay state | Owns the room | Owns a socket; no sticky routing, nothing to rehydrate |
+| Failover | Application-level document placement | Shard ownership under a lease, already the broker's job |
+
+The claim is not that a log is a novel way to hold a document — event sourcing
+predates all of this. It is that *the same log* is doing the live fanout, so the
+two things that normally live in separate systems, and disagree, share one
+structure and one order.
+
+**What it costs.** The trade is real and runs in both directions:
+
+- **A browser cannot speak QUIC to Felix**, so this design pays for a gateway hop that anyone using `y-websocket` does not.
+- **Felix is not a database.** No object ACLs, no queries, no transactions — which is why room membership has no obvious home (see Authorization).
+- **One room is one shard is one owning broker**, the same single-owner constraint as a per-document server process. The difference is that failover is machinery Felix already has rather than something this application invents.
+- **Delivery is at-least-once**, so clients must dedupe; a CRDT stack gets idempotence from the merge function for free.
+- **Offline editing for weeks is out.** CRDTs win that outright, and this design does not compete for it.
+- **Replay is bounded by retention.** A history that must reach back further needs checkpoints the log alone does not provide.
+
 ## Architecture
 
 Exactly one new process type sits between a browser and Felix: an edge gateway
