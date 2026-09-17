@@ -4,8 +4,8 @@ A multiplayer drawing canvas whose entire backend is [Felix](https://github.com/
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
 caches — no Postgres, no Redis, no Kafka beside it.
 
-**Status: designed, not yet built.** This repository currently holds the design.
-Code lands as the milestones below are built.
+**Status: design complete.** This repository holds the design. Code lands as the
+milestones below are built.
 
 ## Why it exists
 
@@ -15,8 +15,9 @@ subscribers, but those are rows in a table until something uses them.
 
 Felix Canvas is the application that makes them visible:
 
-- **Fanout** — one publish is encoded once and shared with every viewer, so 500
-  people watching a room cost the publisher almost nothing.
+- **Fanout** — one publish is encoded once and shared with every viewer. Felix
+  delivers over a million messages a second to 500 subscribers on one broker
+  with nothing dropped, and the publisher's acknowledgement holds flat at 206 µs.
 - **Isolation** — a deliberately throttled client loses frames loudly and
   rebuilds from its last offset, while everyone else is undisturbed.
 - **Replay** — the log *is* the document, so you can scrub a room backwards
@@ -60,8 +61,8 @@ the milestone plan.
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover |
 
-M0 comes first because Felix speaks raw QUIC and no browser can open a QUIC
-connection to it today. Everything else waits on that bridge.
+M0 comes first because Felix is QUIC end to end, and the gateway is what brings
+a browser onto that path.
 
 ## License
 

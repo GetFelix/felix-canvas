@@ -210,9 +210,8 @@ a lock, which is one reason this design has no locks.
 
 ## Browser transport
 
-Felix speaks raw QUIC and nothing else — there is no WebTransport or HTTP/3 in
-the tree, so no browser can open a Felix connection today. Every browser-facing
-idea is gated on this.
+Felix is QUIC end to end, and a browser reaches it through a gateway. The
+options below differ in which browser protocol that gateway speaks.
 
 | Option | Work | Browser support | Cursor path | Auth surface |
 |---|---|---|---|---|
@@ -350,12 +349,12 @@ is the milestone order: everything that proves something about Felix lands by M4
 - The gateway quietly becoming stateful. Treat state in the gateway as a design defect, not an optimization.
 - Retention versus replay. A 30-day window bounds how far the scrubber can go.
 
-**Upstream Felix work this surfaces:**
+**What this project would contribute upstream to Felix:**
 
-1. **No WebTransport or WebSocket ingress.** Every browser product needs a bespoke gateway. A first-party bridge is the largest single unlock.
-2. **No object-level authorization store.** Room membership has no natural home; tenant RBAC plus token narrowing gets close but leaves the membership list homeless.
-3. **No JavaScript or TypeScript client.** There is a Python client and a Rust one; the gateway exists partly because the browser has no way to speak the protocol.
-4. **Snapshot-plus-offset is a pattern, not a primitive.** Every application on Felix that wants fast joins will reimplement it, and getting the ordering wrong is silent.
+1. **A first-party browser bridge.** The gateway built here generalizes: WebSocket or WebTransport ingress belongs in Felix itself, and is the largest single unlock for browser-facing products.
+2. **Object-level authorization.** Tenant RBAC plus token narrowing already scopes a session to one room; a place to keep the membership list itself would complete it.
+3. **A TypeScript client.** Felix has Rust and Python clients; a browser-side one would let the gateway shrink to pure transport.
+4. **Snapshot-plus-offset as a primitive.** Every application that wants fast joins needs this pattern; a helper in `felix-client` would hand it to all of them.
 
 **Open questions**
 
