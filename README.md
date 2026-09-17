@@ -23,6 +23,27 @@ Felix Canvas is the application that makes them visible:
 - **Replay** — the log *is* the document, so you can scrub a room backwards
   through its own history. No server-side session state to replay from.
 
+## How these are normally built
+
+A realtime canvas is normally four systems: a WebSocket tier with sticky sessions
+so a room's clients reach the process holding it, Redis pub/sub to fan out when
+they do not, Postgres for the document of record, and Kafka added later when
+history turns out to matter. That stack works — most collaborative software you
+have used is built from it — but the order of truth is split across all four, and
+Redis pub/sub carries no offsets, so a client that misses an update has no way to
+learn that it did. Reloading the page is collaborative software's universal
+repair for exactly that reason.
+
+Felix Canvas keeps the merge rule those systems already use — last-writer-wins
+per shape field, the same rule as Figma — and changes only what sits underneath.
+One log per room does the live fanout *and* the history, so catch-up and replay
+are the same call, and a missed update is a gap in offsets rather than a wrong
+picture nobody notices.
+
+The design chapter [How these are normally built](docs/design.md#how-these-are-normally-built)
+has the full comparison, including what the trade costs: a gateway hop for
+browsers, no place to keep an ACL, and no offline editing worth the name.
+
 ## How it works
 
 One room is one durable Felix stream plus a few cache keys.
