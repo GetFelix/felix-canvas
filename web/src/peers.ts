@@ -2,6 +2,7 @@ import type { Presence } from "@felix-canvas/model";
 
 import { claims, displayName } from "./auth.js";
 import type { Camera } from "./render.js";
+import type { RemoteCaret } from "./textcarets.js";
 
 /**
  * The presence palette, in order. Cyan (hue 170 to 210) is left out on
@@ -36,6 +37,8 @@ export const MAX_NAME = 24;
 const OMEGA = 50;
 /** Jumps longer than this on screen snap instead of sweeping across the canvas. */
 const SNAP_PX = 800;
+/** A typing person's pointer fades after this long, so they show one mark, not two. */
+const TYPING_HIDES_POINTER_MS = 1000;
 
 /**
  * The person id for the account `token` signs in: a 64-bit FNV-1a hash of
@@ -83,6 +86,8 @@ export interface Peer {
   idle: boolean;
   /** When the pointer last moved, on the `performance.now()` clock. */
   lastMove: number;
+  /** Their caret in the text they are editing, if they are. */
+  caret: RemoteCaret | null;
 }
 
 interface Tracked extends Peer {
@@ -90,6 +95,8 @@ interface Tracked extends Peer {
   shown: { x: number; y: number };
   velocity: { x: number; y: number };
   lastSeen: number;
+  /** When they started typing without moving the pointer since, if they have. */
+  typingSince: number | null;
   element: HTMLElement;
 }
 
@@ -119,7 +126,7 @@ export class Peers {
     const colorIndex = paletteIndex(presence.color);
     const color = PEER_COLORS[colorIndex]!;
     const peer = existing ?? this.#add(presence, color, now);
-    const changed =
+    let changed =
       !existing ||
       peer.name !== presence.name ||
       peer.colorIndex !== colorIndex ||
@@ -132,8 +139,17 @@ export class Peers {
     const moved =
       presence.cursor &&
       (!peer.target || peer.target.x !== presence.cursor.x || peer.target.y !== presence.cursor.y);
-    if (moved) peer.lastMove = now;
+    if (moved) {
+      peer.lastMove = now;
+      peer.typingSince = null;
+    }
     peer.target = presence.cursor;
+    const caret = this.#caret(peer, presence, now);
+    if (caret !== peer.caret) {
+      peer.caret = caret;
+      if (caret) peer.typingSince ??= now;
+      changed = true;
+    }
     peer.element.style.setProperty("--peer", color);
     peer.element.querySelector(".cursor-name")!.textContent = presence.name;
     return changed;
@@ -158,7 +174,8 @@ export class Peers {
         changed = true;
       }
       const target = peer.target;
-      peer.element.classList.toggle("hidden", target === null);
+      const typing = peer.typingSince !== null && now - peer.typingSince > TYPING_HIDES_POINTER_MS;
+      peer.element.classList.toggle("hidden", target === null || typing);
       peer.element.classList.toggle("idle", idle);
       if (!target) continue;
       const jump = Math.hypot(target.x - peer.shown.x, target.y - peer.shown.y) * camera.zoom;
@@ -203,10 +220,43 @@ export class Peers {
       velocity: { x: 0, y: 0 },
       lastMove: now,
       lastSeen: now,
+      caret: null,
+      typingSince: null,
       element,
     };
     this.#peers.set(presence.sid, peer);
     return peer;
+  }
+
+  /**
+   * Note that `sid` typed into the text its caret is in. A caret at the end
+   * of a text points at the end, which does not change as they type there,
+   * so this is what keeps their name showing. Returns whether a caret changed.
+   */
+  typed(sid: bigint, shape: bigint, now = performance.now()): boolean {
+    const peer = this.#peers.get(sid);
+    if (peer?.caret?.shape !== shape) return false;
+    peer.caret = { ...peer.caret, movedAt: now };
+    peer.typingSince ??= now;
+    return true;
+  }
+
+  /** The peer's caret: the one it has while nothing about it changed, so it can be cached. */
+  #caret(peer: Tracked, presence: Presence, now: number): RemoteCaret | null {
+    const text = presence.text;
+    if (!text) return null;
+    const old = peer.caret;
+    if (
+      old &&
+      old.shape === text.shape &&
+      old.name === peer.name &&
+      old.color === peer.color &&
+      sameBytes(old.anchor, text.anchor) &&
+      sameBytes(old.head, text.head)
+    ) {
+      return old;
+    }
+    return { sid: peer.sid, name: peer.name, color: peer.color, ...text, movedAt: now };
   }
 
   #remove(peer: Tracked): void {
@@ -222,4 +272,8 @@ function spring(x: number, v: number, target: number, dt: number): [number, numb
   const c1 = x - target;
   const c2 = v + OMEGA * c1;
   return [target + (c1 + c2 * dt) * decay, (c2 - OMEGA * (c1 + c2 * dt)) * decay];
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, i) => byte === b[i]);
 }

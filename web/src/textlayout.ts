@@ -382,7 +382,30 @@ export function caretAt(
     candidates.find((candidate) => offset >= candidate.start && offset < candidate.end) ??
     candidates.findLast((candidate) => offset >= candidate.start) ??
     candidates[0];
-  if (!line) return null;
+  return line ? { line, x: xInLine(line, offset) } : null;
+}
+
+/** The boxes, one per line, that cover the text between two points, in body units. */
+export function selectionBoxes(
+  result: TextLayout,
+  a: { block: number; offset: number },
+  b: { block: number; offset: number },
+): { x: number; y: number; w: number; h: number }[] {
+  const [from, to] =
+    a.block < b.block || (a.block === b.block && a.offset <= b.offset) ? [a, b] : [b, a];
+  const boxes = [];
+  for (const line of result.lines) {
+    if (line.block < from.block || line.block > to.block) continue;
+    const start = line.block === from.block ? Math.max(from.offset, line.start) : line.start;
+    const end = line.block === to.block ? Math.min(to.offset, line.end) : line.end;
+    if (start > end || (start === end && line.start !== line.end)) continue;
+    const x = xInLine(line, start);
+    boxes.push({ x, y: line.top, w: Math.max(xInLine(line, end) - x, 4), h: line.height });
+  }
+  return boxes;
+}
+
+function xInLine(line: Line, offset: number): number {
   let x = line.left;
   for (const segment of line.segments) {
     if (offset <= segment.start) break;
@@ -390,7 +413,7 @@ export function caretAt(
     measurer.font = segment.font;
     x = line.left + segment.x + measurer.measureText(segment.text.slice(0, within)).width;
   }
-  return { line, x };
+  return x;
 }
 
 /** The run of text a link mark covers at a point in the body, if any. */

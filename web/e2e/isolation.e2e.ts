@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { Writer, hashes, join, leaveAll, read, settle } from "./helpers";
+import { Typist, Writer, hashes, join, leaveAll, read, settle } from "./helpers";
 
 test.afterEach(leaveAll);
 
@@ -17,16 +17,25 @@ function quantile(samples: number[], q: number): number {
 /**
  * Busy the room while Ana nudges her rectangle, and return Ana's save times
  * for those nudges. A save time is publish to own delivery, the same path
- * every other viewer's copy of the change takes.
+ * every other viewer's copy of the change takes. Half the load is typing.
  */
 async function editUnderLoad(ana: Page): Promise<number[]> {
   const writer = await Writer.open();
   const shape = BigInt(Date.now()) << 64n;
+  const box = shape + 1n;
+  const typist = new Typist(writer.sid);
   await writer.publish(shape, "create", { type: "rect", x: 3000, y: 3000, w: 40, h: 30, z: "V" });
+  await writer.publish(box, "create", { type: "text", x: 3000, y: 3100, w: 200, z: "V" });
   const load = (async () => {
     const acks: Promise<number>[] = [];
     for (let i = 0; i < LOAD; i += 6) {
-      for (let j = 0; j < 6; j++) acks.push(writer.publish(shape, "patch", { x: 3000 + i + j }));
+      for (let j = 0; j < 6; j++) {
+        acks.push(
+          j % 2
+            ? writer.publish(box, "text", { y: typist.type(`${i + j} `) })
+            : writer.publish(shape, "patch", { x: 3000 + i + j }),
+        );
+      }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     await Promise.all(acks);

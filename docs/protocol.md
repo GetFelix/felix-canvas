@@ -456,6 +456,7 @@ otherwise. A session not heard from for 10 seconds is treated as gone.
 | `sel` | array of bin 16 | Ids of the selected shapes |
 | `gone` | bool | Present and true on a session's last message |
 | `at` | uint | How many changes the session has applied: the next offset it needs. Optional |
+| `txt` | array, optional | While the session edits text: `[shape, anchor, head]`, the shape id as bin 16 and the selection's two ends as encoded Yjs relative positions (`Y.encodeRelativePosition`), so a caret stays on its character while others type before it |
 
 The canvas samples the pointer once per animation frame and sends at most one
 message per 16 ms, so a 120 Hz screen still sends 60 a second. Cursors on other

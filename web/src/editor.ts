@@ -10,7 +10,7 @@ import {
 import type { Camera } from "./render.js";
 import type { Session } from "./session.js";
 import type { TextEditor } from "./texteditor.js";
-import { LINE_HEIGHT } from "./textlayout.js";
+import { LINE_HEIGHT, linkAt } from "./textlayout.js";
 import {
   bounds,
   handleCursor,
@@ -19,6 +19,7 @@ import {
   intersects,
   normalize,
   resize,
+  textOrigin,
   union,
   type Box,
   type Handle,
@@ -65,6 +66,8 @@ export class Editor {
   dragging = false;
   /** Whether only the camera may move, as while looking at history. */
   readOnly = false;
+  /** The address of a link in text under the pointer, which Cmd+click opens. */
+  hoverLink: string | null = null;
 
   /** Called when anything drawn changed. */
   onChange: () => void = () => {};
@@ -112,6 +115,7 @@ export class Editor {
       if (this.#gesture) return;
       this.pointer = null;
       this.hover = null;
+      this.hoverLink = null;
       this.onChange();
     });
     canvas.addEventListener("wheel", (event) => this.#wheel(event), { passive: false });
@@ -205,8 +209,10 @@ export class Editor {
   /** Drop selected ids that no longer exist. Call after the view changes. */
   prune(): void {
     const present = new Set(this.#shapes().map((shape) => shape.id));
-    // Someone else deleted the shape being edited.
-    if (this.#text.shape !== null && !present.has(this.#text.shape)) this.#text.close();
+    // Someone else deleted the shape being edited. While rejoining, the canvas
+    // can be older than the shape for a moment, which is not that.
+    const gone = this.#text.shape !== null && !present.has(this.#text.shape);
+    if (gone && this.#session.caughtUp) this.#text.close();
     let changed = false;
     for (const id of this.selection) {
       if (!present.has(id)) changed = this.selection.delete(id);
@@ -258,6 +264,11 @@ export class Editor {
     this.#text.close();
     const screen = this.#screen(event);
     const point = this.#world(screen);
+    const link = (event.metaKey || event.ctrlKey) && event.button === 0 && this.#linkAt(point);
+    if (link) {
+      window.open(link, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (event.button === 1 || this.tool === "hand" || this.#space || this.readOnly) {
       this.#gesture = { kind: "pan", from: screen, camera: { ...this.camera } };
       this.#canvas.style.cursor = "grabbing";
@@ -577,7 +588,16 @@ export class Editor {
     return true;
   }
 
+  /** The address of a link in shape text at world `point`, if there is one. */
+  #linkAt(point: Point): string | null {
+    const shape = this.#topAt(point);
+    if (!shape?.text) return null;
+    const origin = textOrigin(shape);
+    return linkAt(shape.text, point.x - origin.x, point.y - origin.y);
+  }
+
   #hoverAt(screen: Point, point: Point): void {
+    this.hoverLink = this.#space ? null : this.#linkAt(point);
     if (this.tool !== "select" || this.#space || this.readOnly) {
       this.hover = null;
       return;
