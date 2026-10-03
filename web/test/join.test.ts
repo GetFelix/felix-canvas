@@ -1,4 +1,4 @@
-import { encodePresence, stateHash } from "@felix-canvas/model";
+import { decodeOp, encodePresence, stateHash } from "@felix-canvas/model";
 import { describe, expect, it, vi } from "vitest";
 
 import { GatewayError } from "../src/gateway.js";
@@ -195,5 +195,38 @@ describe("falling behind", () => {
 
     session.setThrottled(false);
     expect(requests.at(-1)).toBe("throttle null");
+  });
+});
+
+describe("losing the connection to the room", () => {
+  it("sends unanswered edits again and keeps one copy of any that landed twice", async () => {
+    const room = new Room();
+    room.write(3);
+    const { session, connections } = join(room);
+    await until(() => session.caughtUp);
+
+    // The record lands, but neither its ack nor its delivery reaches this session.
+    connections[0]!.losingAcks = true;
+    connections[0]!.dropping = true;
+    session.submit("patch", 1n, { y: 7 });
+    await until(() => connections.length === 2 && session.replica.pending.length === 0);
+
+    const seqs = room.log.slice(3).map((bytes) => decodeOp(bytes).seq);
+    expect(seqs.length).toBe(2);
+    expect(new Set(seqs).size).toBe(1);
+    expect(session.replica.next).toBe(5);
+    expect(session.replica.confirmed.shapes.get(1n)?.fields.y).toBe(7);
+    expect(stateHash(session.replica.confirmed)).toBe(room.hash());
+  });
+
+  it("asks for live cursors again when their subscription ends", async () => {
+    const room = new Room();
+    const { session, connections } = join(room);
+    await until(() => session.caughtUp);
+    const connection = connections[0]!;
+    expect(connection.presenceSubscribes).toBe(1);
+
+    connection.onError(new GatewayError("subscription_ended", "connection lost"), "presence");
+    await until(() => connection.presenceSubscribes === 2);
   });
 });
