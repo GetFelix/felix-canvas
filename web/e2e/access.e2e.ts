@@ -9,7 +9,7 @@ test("someone who is not a member is shown that they cannot open the room", asyn
   const card = page.getByRole("alertdialog");
   await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card.getByRole("heading")).toHaveText("You don't have access to this canvas");
-  await expect(card).toContainText("Signed in as ben");
+  await expect(card).toContainText("Signed in as Ben");
   await expect(page.locator("#toolbar")).toBeHidden();
   await expect(page.locator("#joining")).toBeHidden();
 

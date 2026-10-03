@@ -10,7 +10,7 @@ import { Coalescer } from "./coalesce.js";
 import { Editor } from "./editor.js";
 import { HistoryFeed } from "./history.js";
 import { assignColor } from "./members.js";
-import { Peers, ownName, ownPersonId, saveName } from "./peers.js";
+import { Peers, ownName, personId, saveName } from "./peers.js";
 import { render, type Palette } from "./render.js";
 import { Scrubber } from "./scrubber.js";
 import { RoundTrips, Session } from "./session.js";
@@ -69,8 +69,8 @@ const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 const session = new Session(gatewayUrl(), { room, token });
 const scrubber = new Scrubber(new HistoryFeed(gatewayUrl(), { room, token }));
-let name = ownName();
-const person = ownPersonId();
+const person = personId(token);
+let name = ownName(person, token);
 
 let shapesOf: { doc: Doc; shapes: Shape[] } = { doc: EMPTY_DOC, shapes: [] };
 function shapes(): Shape[] {
@@ -149,7 +149,7 @@ editor.onStateChange = () => {
 };
 chrome.onRename = (newName) => {
   name = newName;
-  saveName(name);
+  saveName(person, name);
   membersChanged();
 };
 scrubber.onChange = () => (dirty = true);

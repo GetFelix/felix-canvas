@@ -126,7 +126,7 @@ In history mode text is read-only and shows as it was at the playhead, and caret
 ## Presence
 
 - **Cursor**: a 16 px arrow filled with the user's colour, 1.5 px white outline (it reads on both themes), and a name pill 12 px right and 12 px below the tip: user colour background, white Inter 11 px semibold, 4 px x 6 px padding, 6 px radius.
-- **Colour assignment**: hash the session id into an eight-colour palette, then walk to the next free colour if someone in the room already has it. Keep hue 170 to 210 out of the palette so cyan stays Felix's own. tldraw ships a twelve-colour list for the same job ([tldraw](https://tldraw.dev/sdk-features/cursors)).
+- **Colour assignment**: hash the signed-in account into an eight-colour palette, then walk to the next free colour if someone in the room already has it. Keep hue 170 to 210 out of the palette so cyan stays Felix's own. tldraw ships a twelve-colour list for the same job ([tldraw](https://tldraw.dev/sdk-features/cursors)).
 
   | Name | Value |
   |---|---|
@@ -144,7 +144,7 @@ In history mode text is read-only and shows as it was at the playhead, and caret
 - **Off-screen users**: a small arrow in their colour pinned to the viewport edge, pointing at their cursor, as tldraw does. Click it to jump there.
 - **Follow**: click an avatar. The camera eases toward their viewport, fast at first, then locks once within 2 px, as tldraw's follow chase does; follow chains resolve to the leader; any canvas interaction stops following ([tldraw following](https://tldraw.dev/sdk-features/user-following)). While following, a 2 px border in the leader's colour frames the viewport with "Following Ana · Esc to stop" in a pill at top centre.
 - **Idle**: no pointer movement for 10 s fades the cursor and pill to 0 over 400 ms and dims the avatar to 50%. The label is "Away", with the time once it passes a minute ("Away · 2m"); a tab in the background reads the same way.
-- **People list**: clicking the avatar stack opens a 280 px popover titled "3 people here" (or "Just you here"): you first with your name editable in place, then everyone else with a green dot and "Active", or "Away". Until follow exists, this is what the click does. Membership expiry (the 30 s TTL in the design) removes the avatar with a 200 ms shrink. Freeform announces joins and leaves ([Apple](https://support.apple.com/guide/freeform/collaborate-on-a-shared-board-frfm4e6e2c9a6/mac)); do that with a 2 s toast only while the room has fewer than ten people.
+- **People list**: clicking the avatar stack opens a 280 px popover titled "3 people here" (or "Just you here"): you first with your name editable in place (it starts as the name your account gives, and a new one is remembered for that account), then everyone else with a green dot and "Active", or "Away". Until follow exists, this is what the click does. Membership expiry (the 30 s TTL in the design) removes the avatar with a 200 ms shrink. Freeform announces joins and leaves ([Apple](https://support.apple.com/guide/freeform/collaborate-on-a-shared-board-frfm4e6e2c9a6/mac)); do that with a 2 s toast only while the room has fewer than ten people.
 - A "Hide cursors" toggle lives in the view menu, per user, as in Miro ([Miro](https://community.miro.com/ask-the-community-45/hide-collaborators-cursors-moved-18024)).
 
 ## History scrubber

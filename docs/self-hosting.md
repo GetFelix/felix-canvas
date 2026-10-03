@@ -397,7 +397,7 @@ between them and write wrong snapshots.
 | `CANVAS_SERVICE_IDP` | `http://idp:9400` | A `dev/idp.mjs` the service accounts sign in with. Keep it unreachable from outside |
 | `CANVAS_STATE_DIR` | `/state` | Where it writes `node.token` and `snapshotter.token` |
 | `CANVAS_TENANT`, `CANVAS_NAMESPACE` | `canvas`, `default` | Where to create the rooms |
-| `CANVAS_ROOMS` | `lobby=ana,ben studio=ana` | Rooms and their members, `room=member,member` separated by spaces |
+| `CANVAS_ROOMS` | `lobby=ana,ben,cleo studio=ana` | Rooms and their members, `room=member,member` separated by spaces |
 | `CANVAS_OIDC_ISSUER` | the service provider's | The browsers' provider |
 | `CANVAS_OIDC_JWKS_URL` | from the issuer's discovery document | Where Felix fetches that provider's keys |
 | `CANVAS_OIDC_CLIENT_ID` | `felix-canvas` | The client ID, used as the audience unless the next one is set |
