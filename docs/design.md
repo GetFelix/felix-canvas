@@ -1,10 +1,10 @@
-# Felix Canvas — design
+# Felix Canvas design
 
 A multiplayer drawing canvas whose entire backend is [Felix](https://github.com/gabloe/felix):
 shapes, cursors, presence, history and snapshots in Felix streams and caches,
 reached over one authenticated QUIC connection.
 
-It exists to argue something a broker alone cannot — that cheap fanout,
+It exists to argue something a broker alone cannot: that cheap fanout,
 per-subscriber isolation and replay-by-offset are product features, not
 benchmark rows. The audience is an engineer who would otherwise wire Redis
 beside Kafka and does not yet believe one system covers both.
@@ -19,10 +19,10 @@ beside Kafka and does not yet believe one system covers both.
 
 **Out of scope**
 
-- Rich text editing inside shapes beyond a single-line label — the conflict story there is a research project, not a Felix story
+- Rich text editing inside shapes beyond a single-line label: the conflict story there is a research project, not a Felix story
 - Offline-first editing with weeks of divergence; the design assumes a client reconnects within the retention window
 - Permissions finer than room-level (see Authorization for why, and what it would cost)
-- Anything that needs a second datastore — if a feature cannot be expressed in streams, caches and counters, it is out by definition
+- Anything that needs a second datastore. If a feature cannot be expressed in streams, caches and counters, it is out by definition
 
 ## Success criteria
 
@@ -36,7 +36,7 @@ The project succeeds if five demonstrations work in front of a skeptic.
 | 4 | Replay | Scrub a 10,000-op document backwards and forwards; every intermediate frame is reproducible from the log alone, with no server-side session state |
 | 5 | Survive broker loss | Kill the broker owning the room's stream mid-stroke; editing resumes on the new owner with no lost acknowledged op and no duplicate op |
 
-Two criteria are deliberately absent. Raw message rate is not a goal — a canvas
+Two criteria are deliberately absent. Raw message rate is not a goal: a canvas
 will never push millions of messages a second, and claiming it as a product
 number would be dishonest. Nor is scale in rooms: one broker holding one busy
 room is the interesting case, since a stream shard has a single owner.
@@ -52,7 +52,7 @@ Three shapes dominate, and they differ mostly in where the merge happens:
 | Shape | Merge runs | Examples | The server is |
 |---|---|---|---|
 | Authoritative document process | On the server, over a total order it defines | Google Docs (OT), Figma (LWW per property) | A stateful process owning one document in memory |
-| CRDT plus a relay | In every client, independently | Yjs with `y-websocket`, Automerge, PartyKit | A relay that also persists — still usually one room per process |
+| CRDT plus a relay | In every client, independently | Yjs with `y-websocket`, Automerge, PartyKit | A relay that also persists, still usually one room per process |
 | Managed realtime service | Wherever the vendor put it | Firebase, Supabase Realtime, Liveblocks, Ably | Someone else's problem, at someone else's price |
 
 Self-hosted, the first two assemble from roughly the same parts:
@@ -69,7 +69,7 @@ it. Its seams are in known places:
 **The order of truth is split across systems.** Redis has one order, Postgres
 another, Kafka a third, and none of them is defined relative to the others. On
 reconnect, which one should the client believe? The common answer is none of
-them — refetch the whole document.
+them: refetch the whole document.
 
 **A drop is invisible.** Redis pub/sub is at-most-once and carries no offsets.
 When a relay's per-client buffer fills it drops, and the client has no way to
@@ -99,13 +99,13 @@ The seams above stop being application work and become properties of the broker.
 |---|---|---|
 | Order of truth | Split across Redis, Postgres, Kafka | One shard, one offset sequence, no second opinion |
 | Drop detection | Silent | A gap in offsets, which is an error the client recovers from |
-| Catch-up vs. history | Two paths, two sources | `subscribe_from(offset)` — the same call for both |
+| Catch-up vs. history | Two paths, two sources | `subscribe_from(offset)`, the same call for both |
 | Slow client | A buffer policy hand-written in the relay | A bounded per-subscriber queue with a declared overflow policy |
 | Fanout cost | Encode per connection | Encoded once, shared by every subscriber |
 | Relay state | Owns the room | Owns a socket; no sticky routing, nothing to rehydrate |
 | Failover | Application-level document placement | Shard ownership under a lease, already the broker's job |
 
-The claim is not that a log is a novel way to hold a document — event sourcing
+The claim is not that a log is a novel way to hold a document; event sourcing
 predates all of this. It is that *the same log* is doing the live fanout, so the
 two things that normally live in separate systems, and disagree, share one
 structure and one order.
@@ -113,7 +113,7 @@ structure and one order.
 **What it costs.** The trade is real and runs in both directions:
 
 - **A browser cannot speak QUIC to Felix**, so this design pays for a gateway hop that anyone using `y-websocket` does not.
-- **Felix is not a database.** No object ACLs, no queries, no transactions — which is why room membership has no obvious home (see Authorization).
+- **Felix is not a database.** No object ACLs, no queries, no transactions, which is why room membership has no obvious home (see Authorization).
 - **One room is one shard is one owning broker**, the same single-owner constraint as a per-document server process. The difference is that failover is machinery Felix already has rather than something this application invents.
 - **Delivery is at-least-once**, so clients must dedupe; a CRDT stack gets idempotence from the merge function for free.
 - **Offline editing for weeks is out.** CRDTs win that outright, and this design does not compete for it.
@@ -139,7 +139,7 @@ flowchart LR
 The gateway holds no canvas state. It owns a browser socket, an attenuated Felix
 token and a Felix connection, and it copies frames between them; a room's truth
 lives only in the broker's log and cache. That constraint is what keeps
-demonstration 4 honest — if the gateway cached shapes, replay would be proving
+demonstration 4 honest: if the gateway cached shapes, replay would be proving
 the gateway works, not the log.
 
 | Component | Language | Holds state? | Responsibility |
@@ -148,7 +148,11 @@ the gateway works, not the log.
 | Edge gateway | Rust, `felix-client` | No | Browser transport, token exchange and attenuation, frame relay |
 | Brokers | Felix | Yes, authoritative | Op log per room, snapshot cache, presence, group cursors |
 | Control plane | Felix | Yes, metadata | Token exchange against the IdP, tenant/stream registration |
-| Snapshotter | Rust, `felix-client` | No | Reads the op log as a consumer group, writes compacted snapshots |
+| Snapshotter | TypeScript on Node, `felix-client` from npm | No | Reads the op log as a consumer group, writes compacted snapshots |
+
+The canvas client and the snapshotter share the op schema, its encoding and
+the fold through the `model/` package, so the state a browser renders and the
+state a snapshot stores come from the same code.
 
 The snapshotter is a separate process on purpose. Snapshot writes are throughput
 work and must never share a fate with an interactive socket, and running it as a
@@ -208,7 +212,7 @@ Each op names a shape id and a sparse set of fields. Concurrent edits to
 different fields of one shape both survive; concurrent edits to the same field
 resolve to the higher offset. No vector clocks and no CRDT library.
 
-That choice is defensible because a canvas has no text-insertion problem —
+That choice is defensible because a canvas has no text-insertion problem:
 shapes are a map, not a sequence, and maps under LWW converge trivially. The two
 places it shows its limits are z-order, which uses fractional indexing between
 neighbours, and freehand strokes, which are immutable once finished and so never
@@ -247,7 +251,7 @@ sequenceDiagram
 The rule is **subscribe before you read**. Registering the live subscription
 first means any op published during the snapshot fetch is already queued for this
 client; reading the snapshot first would lose exactly those ops. This is not
-hypothetical — it is the same ordering defect Felix's own broker was written to
+hypothetical: it is the same ordering defect Felix's own broker was written to
 avoid, and it reappears in every application built on top.
 
 The practical form is simpler than the diagram suggests: open the subscription at
@@ -269,7 +273,7 @@ named offset, by a process that has no other job.
 ## Presence and cursors
 
 At 60 Hz with 50 active editors, cursors are 3,000 msg/s into one room, fanned to
-every viewer — and a cursor position two frames old is not worth the queue slot
+every viewer, and a cursor position two frames old is not worth the queue slot
 it occupies. So the presence stream is ephemeral, runs with
 `SubQueuePolicy::DropNew`, and publishes fire-and-forget with `AckMode::None`.
 
@@ -279,7 +283,7 @@ it occupies. So the presence stream is ephemeral, runs with
 
 Membership uses TTL as a liveness mechanism: each session writes
 `canvas.presence/<room>:<session>` with a 30-second TTL and refreshes every 10
-seconds. A client that vanishes without a goodbye stops refreshing and expires —
+seconds. A client that vanishes without a goodbye stops refreshing and expires,
 which matters, because a browser closing a laptop lid sends no goodbye.
 
 The cost is that a crashed session lingers in the member list for up to 30
@@ -293,20 +297,20 @@ options below differ in which browser protocol that gateway speaks.
 
 | Option | Work | Browser support | Cursor path | Auth surface |
 |---|---|---|---|---|
-| WebSocket gateway | Days | Universal | Reliable, ordered — coalescing carries it | Token stays server-side |
+| WebSocket gateway | Days | Universal | Reliable, ordered; coalescing carries it | Token stays server-side |
 | WebTransport gateway | Weeks | Chrome, Edge, Firefox; not Safari | Unreliable datagrams, ideal fit | Token stays server-side |
 | WebTransport in the broker | Months, in Felix itself | Same gap | Ideal | Browser holds a Felix token |
 
 **Start with the WebSocket gateway, behind a transport trait.** It unblocks the
 product in days, works in every browser, and the coalescing that cursors need
 anyway removes most of what unreliable datagrams would buy. The gateway adds one
-hop — budget 1–2 ms in-region, against a 16 ms frame budget.
+hop: budget 1–2 ms in-region, against a 16 ms frame budget.
 
 **The third row is a trap.** Putting WebTransport in the broker sounds like the
 pure answer and is the wrong one: it would hand a Felix token to untrusted
 JavaScript, force origin and certificate policy into the broker's transport
 layer, and make the browser's connection lifecycle a Felix concern. The gateway
-is not an apology for missing WebTransport — it is the auth boundary, and it
+is not an apology for missing WebTransport. It is the auth boundary, and it
 would exist anyway.
 
 One thing the gateway must not become is a router. The moment it starts merging
@@ -336,7 +340,7 @@ with the accepted limitation that membership edits are last-writer-wins and not
 transactional.
 
 Per-shape or per-layer permissions do not work here. That is finer than the
-broker's unit of authorization, so it would have to be enforced in the gateway —
+broker's unit of authorization, so it would have to be enforced in the gateway,
 and gateway-enforced rules are exactly the kind of claim this project should not
 make.
 
@@ -349,7 +353,7 @@ make.
 | Offline past retention | Answers a read below the trim point with `Trimmed` and the oldest surviving offset | Discards its replica, re-joins from snapshot | A reload-shaped pause |
 | Owning broker lost | Reassigns the shard; a caught-up replica is promoted | Reconnect; unacked ops retry | A stall of roughly the failover window |
 | Publish unacked at failover | May have committed or not | Retries with the same `(sid, seq)`; dedupe absorbs the double | Nothing |
-| Snapshotter dies | Redelivers its window to another group member | Unaffected — joins replay further from the log | Slightly slower joins |
+| Snapshotter dies | Redelivers its window to another group member | Unaffected; joins replay further from the log | Slightly slower joins |
 | Cache watch falls behind | Ends the watch with `Lagged { resume_from }` | Re-watch from the named offset | Nothing |
 
 **Every recovery path is the join path.** A client that has fallen behind, been
@@ -379,7 +383,7 @@ Set by human perception, not by Felix's ceilings.
 | Fanout degradation, 1 → 500 viewers | Publish p50 within 15% | `felix-loadgen` for the subscriber side |
 | Snapshot lag | < 1,000 ops behind the tail | Group cursor offset versus stream tail |
 
-Use `felix-loadgen` to manufacture the 500 viewers — 500 browser tabs are not a
+Use `felix-loadgen` to manufacture the 500 viewers: 500 browser tabs are not a
 measurable population. Real browsers carry the human-facing paths.
 
 **Budget the hop, then check it.** Of the 50 ms edit-visible target, Felix's own
@@ -418,7 +422,7 @@ genuinely impressive demo lands at M4.
 ## Risks, and what this surfaces in Felix
 
 The real risk is not technical. A canvas is a large piece of frontend work, and
-the frontend has nothing to do with Felix — weeks can disappear into
+the frontend has nothing to do with Felix: weeks can disappear into
 pointer-event handling and produce no argument about the broker. The mitigation
 is the milestone order: everything that proves something about Felix lands by M4.
 
@@ -431,7 +435,7 @@ is the milestone order: everything that proves something about Felix lands by M4
 
 1. **A first-party browser bridge.** The gateway built here generalizes: WebSocket or WebTransport ingress belongs in Felix itself, and is the largest single unlock for browser-facing products.
 2. **Object-level authorization.** Tenant RBAC plus token narrowing already scopes a session to one room; a place to keep the membership list itself would complete it.
-3. **A TypeScript client.** Felix has Rust and Python clients; a browser-side one would let the gateway shrink to pure transport.
+3. **A TypeScript client.** Felix has Rust and Python clients and a Node addon; a browser-side one would let the gateway shrink to pure transport.
 4. **Snapshot-plus-offset as a primitive.** Every application that wants fast joins needs this pattern; a helper in `felix-client` would hand it to all of them.
 
 **Open questions**
