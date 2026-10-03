@@ -83,6 +83,9 @@ the milestone plan.
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
 
+Each milestone is tracked as a [GitHub milestone](https://github.com/gabloe/felix-canvas/milestones)
+with an issue per piece of work.
+
 M0 comes first because Felix is QUIC end to end, and the gateway is what brings
 a browser onto that path. What it proves, as tested in CI against the published
 Felix images:
@@ -104,7 +107,10 @@ Felix images:
 | `model/` | The op schema and its MessagePack encoding, shared by the browser and the future snapshotter |
 | `web/` | The browser client. For M0, a test page that publishes ops and lists what the log delivers |
 | `dev/` | Felix for local runs and CI: Docker Compose over the published images, a stand-in IdP, and a seed script |
+| `docs/design.md` | The design: data model, editing and join rules, failure modes, targets |
 | `docs/protocol.md` | The browser to gateway protocol |
+| `docs/development.md` | Where to run it, the lockfile rule, the dev stack and CI |
+| `CONTRIBUTING.md` | How code, comments and pull requests should read |
 
 ## Running locally
 
