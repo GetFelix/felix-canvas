@@ -8,7 +8,7 @@ import { Chrome } from "./chrome.js";
 import { Coalescer } from "./coalesce.js";
 import { Editor } from "./editor.js";
 import { assignColor } from "./members.js";
-import { Peers, ownName, saveName } from "./peers.js";
+import { Peers, ownName, ownPersonId, saveName } from "./peers.js";
 import { render, type Palette } from "./render.js";
 import { Session } from "./session.js";
 import { readShape, type Shape } from "./shapes.js";
@@ -29,6 +29,7 @@ const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 const session = new Session(gatewayUrl());
 let name = ownName();
+const person = ownPersonId();
 
 let shapesOf: { doc: Doc; shapes: Shape[] } = { doc: EMPTY_DOC, shapes: [] };
 function shapes(): Shape[] {
@@ -41,7 +42,7 @@ function shapes(): Shape[] {
 
 const editor = new Editor(canvas, session, shapes);
 const peers = new Peers(document.getElementById("cursors")!);
-const chrome = new Chrome(session, editor, name);
+const chrome = new Chrome(session, editor, name, person);
 
 let palette = readPalette();
 let dirty = true;
@@ -64,7 +65,7 @@ function readPalette(): Palette {
   };
 }
 
-const ownColor = () => assignColor(session.sid, session.members.list());
+const ownColor = () => assignColor(person, session.members.list());
 
 session.onDocChange = () => {
   editor.prune();
@@ -80,7 +81,7 @@ session.onPresence = (message) => {
 // Own colour depends on who else is here, and the entry carries it.
 function membersChanged(): void {
   const color = ownColor();
-  session.setMember({ name, color });
+  session.setMember({ name, color, person });
   chrome.setMembers(session.members.list(), color);
   presence.mark();
 }

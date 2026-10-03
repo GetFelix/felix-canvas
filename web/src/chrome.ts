@@ -70,6 +70,7 @@ export class Chrome {
   #members: RoomMember[] = [];
   /** Other members' names by session, once the first list has arrived. */
   #known: Map<bigint, string> | null = null;
+  readonly #person: bigint;
   readonly #avatarNodes = new Map<string, HTMLElement>();
   #pendingSince: number | null = null;
   #disconnectedAt: number | null = null;
@@ -79,7 +80,8 @@ export class Chrome {
   #convergedAt: number | null = null;
   #toastTimer = 0;
 
-  constructor(session: Session, editor: Editor, name: string) {
+  constructor(session: Session, editor: Editor, name: string, person: bigint) {
+    this.#person = person;
     this.#session = session;
     this.#editor = editor;
     this.#name = name;
@@ -150,14 +152,17 @@ export class Chrome {
   setMembers(members: RoomMember[], ownColor: number): void {
     this.#members = members;
     this.#ownColor = ownColor;
+    // Keyed by person, so a reload or a second tab is not a join or a leave.
     const others = new Map(
-      members
-        .filter((member) => member.sid !== this.#session.sid)
-        .map((member) => [member.sid, member.name]),
+      this.#others().map((entries) => [entries[0]!.person, entries.at(-1)!.name]),
     );
     if (this.#known && others.size + 1 < ANNOUNCE_BELOW) {
-      for (const [sid, name] of others) if (!this.#known.has(sid)) this.toast(`${name} joined`);
-      for (const [sid, name] of this.#known) if (!others.has(sid)) this.toast(`${name} left`);
+      for (const [person, name] of others) {
+        if (!this.#known.has(person)) this.toast(`${name} joined`);
+      }
+      for (const [person, name] of this.#known) {
+        if (!others.has(person)) this.toast(`${name} left`);
+      }
     }
     this.#known = others;
     this.#renderPeople();
@@ -297,20 +302,38 @@ export class Chrome {
       .setAttribute("points", points.join(" "));
   }
 
+  /**
+   * Everyone else's entries, grouped by person, oldest entry first. A person
+   * with two tabs, or a reloaded tab whose old entry has not expired, has
+   * more than one.
+   */
+  #others(): RoomMember[][] {
+    const byPerson = new Map<bigint, RoomMember[]>();
+    for (const member of this.#members) {
+      if (member.person === this.#person) continue;
+      byPerson.set(member.person, [...(byPerson.get(member.person) ?? []), member]);
+    }
+    return [...byPerson.values()];
+  }
+
   #people(): Person[] {
     const now = performance.now();
-    const others = this.#members
-      .filter((member) => member.sid !== this.#session.sid)
-      .map((member) => {
-        const peer = this.#peers.find((candidate) => candidate.sid === member.sid);
-        return {
-          key: member.sid.toString(16),
-          name: member.name,
-          color: PEER_COLORS[paletteIndex(member.color)]!,
-          you: false,
-          status: peer && !peer.idle ? "Active" : away(peer ? now - peer.lastMove : null),
-        };
-      });
+    const others = this.#others().map((entries) => {
+      const newest = entries.at(-1)!;
+      const peers = entries.flatMap(
+        (entry) => this.#peers.find((peer) => peer.sid === entry.sid) ?? [],
+      );
+      const lastMove = Math.max(...peers.map((peer) => peer.lastMove));
+      return {
+        key: newest.person.toString(16),
+        name: newest.name,
+        color: PEER_COLORS[paletteIndex(newest.color)]!,
+        you: false,
+        status: peers.some((peer) => !peer.idle)
+          ? "Active"
+          : away(peers.length > 0 ? now - lastMove : null),
+      };
+    });
     const you = {
       key: "you",
       name: this.#name,

@@ -8,7 +8,7 @@ const ben = 0xbbbbn;
 
 const entry = (sid: bigint, name: string, expiresInMs: number | null = 30_000): MemberEntry => ({
   key: memberKey(sid),
-  payload: encodeMember({ name, color: 0 }),
+  payload: encodeMember({ name, color: 0, person: sid }),
   expiresInMs,
 });
 const names = (members: Members) => members.list().map((member) => member.name);
@@ -74,18 +74,28 @@ describe("Members", () => {
 });
 
 describe("assignColor", () => {
-  const member = (sid: bigint, color: number) => ({ sid, name: "", color });
+  // A fresh session id each time, as after a reload: only the person id counts.
+  const member = (person: bigint, color: number) => ({
+    sid: 0xfffn - person,
+    person,
+    name: "",
+    color,
+  });
 
-  it("uses the session's hash when the colour is free", () => {
+  it("uses the person's id when the colour is free", () => {
     expect(assignColor(10n, [])).toBe(2);
   });
 
-  it("moves past colours held by members with smaller ids only", () => {
+  it("moves past colours held by people with smaller ids only", () => {
     expect(assignColor(10n, [member(1n, 2), member(2n, 3)])).toBe(4);
     expect(assignColor(10n, [member(11n, 2)])).toBe(2);
   });
 
-  it("gives two sessions with the same hash different colours from either side", () => {
+  it("gives two tabs of one person the same colour", () => {
+    expect(assignColor(10n, [member(10n, 2)])).toBe(2);
+  });
+
+  it("gives two people whose ids collide different colours from either side", () => {
     const first = member(2n, assignColor(2n, []));
     const second = member(10n, assignColor(10n, [first]));
     expect(second.color).not.toBe(first.color);

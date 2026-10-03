@@ -58,6 +58,26 @@ test("two people see each other's cursors and names, and a vanished tab drops ou
     }
   });
 
+  await test.step("a reload keeps one entry and the same colour", async () => {
+    const colorOfAna = () =>
+      ben
+        .locator('#avatars .avatar[data-tip^="Ana"]')
+        .evaluate((avatar) => (avatar as HTMLElement).style.getPropertyValue("--peer"));
+    // An earlier test's tab named Ana is someone else and may still be expiring.
+    await expect(ben.locator('#avatars .avatar[data-tip^="Ana"]')).toHaveCount(1, {
+      timeout: MEMBER_TTL_MS + 4_000,
+    });
+    const before = await colorOfAna();
+    await ana.reload();
+    await expect(ana.locator("#joining")).toBeHidden({ timeout: 30_000 });
+    await ana.mouse.move(460, 340);
+    await expect(ben.locator('#avatars .avatar[data-tip^="Ana"]')).toHaveCount(1);
+    expect(await colorOfAna()).toBe(before);
+    await ben.locator("#avatars").click();
+    await expect(personIn(ben, "Ana")).toHaveCount(1);
+    await ben.keyboard.press("Escape");
+  });
+
   await test.step("a new name reaches the other person", async () => {
     await ben.locator("#avatars").click();
     await ben.locator("#you-name").fill("Benji");

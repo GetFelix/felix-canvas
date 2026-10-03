@@ -165,7 +165,14 @@ export class Session {
 
   /** Join the member list as `member`, or update the entry. It is refreshed until {@link leave}. */
   setMember(member: Member): void {
-    if (this.#member?.name === member.name && this.#member.color === member.color) return;
+    const same = this.#member;
+    if (
+      same?.name === member.name &&
+      same.color === member.color &&
+      same.person === member.person
+    ) {
+      return;
+    }
     this.#member = member;
     this.#writeMember();
   }

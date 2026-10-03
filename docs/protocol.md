@@ -328,10 +328,15 @@ A member entry is a MessagePack map, encoded by `encodeMember` in `model/`.
 |---|---|---|
 | `name` | str | Display name, at most 24 characters |
 | `color` | uint | Index into the presence palette |
+| `person` | uint | A u64 the browser keeps in local storage across visits |
 
-A session's colour is its id modulo eight, moved on to the next free colour
-while a member with a smaller id holds it. Everyone sees the same member list,
-so everyone settles on the same colours.
+The key is the session, which is new on every page load; `person` stays the
+same, so the canvas uses it for anything that should outlast a reload. A
+person's colour is their `person` modulo eight, moved on to the next free
+colour while someone with a smaller `person` holds it. Everyone sees the same
+member list, so everyone settles on the same colours, and a reload keeps them.
+The people list shows each person once, however many tabs they have open or
+however many entries an unclean reload left behind.
 
 ## Snapshot payload
 

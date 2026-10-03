@@ -25,10 +25,10 @@ caches. You run it yourself: Felix, a stateless gateway, a snapshotter and the w
 **Status: M3 done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
-Everyone sees everyone else's cursor and name, and a member list that drops a
-closed laptop on its own.
 A snapshotter keeps the room's folded state in the Felix cache, so a browser
 joining a busy room draws it at once and reads only the recent changes.
+Everyone sees everyone else's cursor and name, and a member list that drops a
+closed laptop on its own.
 Packaged images for self-hosting come in M8; until then, see
 [Running locally](#running-locally).
 
@@ -165,6 +165,8 @@ the same images:
   through one retained prefix watch. A tab that closes deletes its entry at
   once; a tab that crashes drops out of the other browser's list when the
   entry expires, not before.
+- A person keeps their colour and shows once in the list across a reload,
+  because colours come from an id the browser keeps, not from the session.
 - The gateway lists, watches and expires member entries against a real broker.
 
 ## Repository layout

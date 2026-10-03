@@ -1,4 +1,4 @@
-import type { Presence } from "@felix-canvas/model";
+import { randomSessionId, type Presence } from "@felix-canvas/model";
 
 import type { Camera } from "./render.js";
 
@@ -44,6 +44,7 @@ const IDLE_MS = 10_000;
 /** Matches the cursor's opacity transition, so a leaving cursor fades out first. */
 const FADE_MS = 400;
 const NAME_KEY = "felix-canvas.name";
+const PERSON_KEY = "felix-canvas.person";
 /** Longer names are cut so a cursor's name pill stays small. */
 export const MAX_NAME = 24;
 /** The spring's angular frequency: settles in about 80 ms. */
@@ -61,6 +62,19 @@ export function ownName(): string {
     return name;
   } catch {
     return NAMES[0]!;
+  }
+}
+
+/** This browser's person id, kept between visits so its colour stays the same. */
+export function ownPersonId(): bigint {
+  try {
+    const saved = localStorage.getItem(PERSON_KEY);
+    if (saved && /^[0-9a-f]{16}$/.test(saved)) return BigInt(`0x${saved}`);
+    const person = randomSessionId();
+    localStorage.setItem(PERSON_KEY, person.toString(16).padStart(16, "0"));
+    return person;
+  } catch {
+    return randomSessionId();
   }
 }
 

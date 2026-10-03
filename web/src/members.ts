@@ -71,16 +71,17 @@ export class Members {
 }
 
 /**
- * The palette index for session `sid`: its hash, moved on to the next free
- * colour while a member with a smaller id holds it. Every client sees the
- * same members, so they settle on the same assignment.
+ * The palette index for `person`: their id modulo the palette size, moved on
+ * to the next free colour while someone with a smaller person id holds it.
+ * Every client sees the same members, so they settle on the same assignment,
+ * and a person keeps their colour across reloads unless the room changes.
  */
-export function assignColor(sid: bigint, members: readonly RoomMember[]): number {
+export function assignColor(person: bigint, members: readonly RoomMember[]): number {
   const size = PEER_COLORS.length;
   const taken = new Set(
-    members.filter((member) => member.sid < sid).map((member) => paletteIndex(member.color)),
+    members.filter((member) => member.person < person).map((member) => paletteIndex(member.color)),
   );
-  let index = Number(sid % BigInt(size));
+  let index = Number(person % BigInt(size));
   for (let i = 0; i < size && taken.has(index); i++) index = (index + 1) % size;
   return index;
 }
