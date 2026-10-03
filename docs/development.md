@@ -93,8 +93,13 @@ them sign in through a Dex login form. Only `convergence.e2e.ts` is meant for
 an install; the others drive the dev stack directly.
 
 A release is a `v*` tag. Before tagging, set the compose file's
-`CANVAS_VERSION` default to the new version; the release workflow refuses a tag
-that does not match.
+`CANVAS_VERSION` default and the chart's `appVersion` to the new version, and
+bump the chart's `version`; the release workflow refuses a tag that does not
+match.
+
+`deploy/helm/felix-canvas/ci/kind-install.sh` installs the Felix chart and
+this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
+`:ci`.
 
 ## What CI checks
 
@@ -104,7 +109,7 @@ that does not match.
 | Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it, including the narrowing test: a token for one room is refused by the broker on another room's streams, counters, snapshot and member list |
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
 | Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, and a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
-| Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page and once with Dex. On a `v*` tag it pushes, merges and signs the images first and runs the install from GHCR |
+| Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page and once with Dex. On a `v*` tag it pushes, merges and signs the images first and runs the install from GHCR. On pull requests it also installs the Felix chart and this chart on kind and runs the same test through it |
 
 ## Milestones and issues
 

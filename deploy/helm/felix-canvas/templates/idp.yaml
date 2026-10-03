@@ -1,0 +1,80 @@
+{{- /*
+dev/idp.mjs from the snapshotter image, twice over: `tokens` signs in the
+seed's service accounts and is reachable only inside the cluster; `idp` is the
+development sign-in page, when devIdp is on.
+*/ -}}
+{{- $fullname := include "canvas.fullname" . -}}
+{{- $providers := list (dict "component" "tokens" "issuer" (printf "http://%s-tokens:9400" $fullname) "users" "") -}}
+{{- if .Values.devIdp.enabled -}}
+{{- $providers = append $providers (dict "component" "idp" "issuer" .Values.devIdp.issuer "users" .Values.devIdp.users) -}}
+{{- end -}}
+{{- range $i, $p := $providers }}
+{{- if $i }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-{{ $p.component }}
+  labels:
+    {{- include "canvas.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $p.component }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "canvas.selector" (list $ $p.component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "canvas.selector" (list $ $p.component) | nindent 8 }}
+    spec:
+      {{- with $.Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      containers:
+        - name: idp
+          image: {{ include "canvas.image" (list $ $.Values.snapshotter.image) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: ["dev/idp.mjs"]
+          securityContext:
+            {{- include "canvas.securityContext" $ | nindent 12 }}
+          env:
+            - name: IDP_ISSUER
+              value: {{ $p.issuer | quote }}
+            {{- if $p.users }}
+            - name: IDP_USERS
+              value: {{ $p.users | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 9400
+          readinessProbe:
+            httpGet:
+              path: /jwks.json
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-{{ $p.component }}
+  labels:
+    {{- include "canvas.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $p.component }}
+spec:
+  ports:
+    - name: http
+      port: 9400
+      targetPort: http
+  selector:
+    {{- include "canvas.selector" (list $ $p.component) | nindent 4 }}
+{{- end }}

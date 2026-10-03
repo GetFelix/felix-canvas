@@ -22,7 +22,7 @@
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
 caches. You run it yourself: Felix, a stateless gateway, a snapshotter and the web app.
 
-**Status: M0 to M6 done, and M8 but for the Helm chart.** Two browsers draw rectangles, ellipses, lines and pen
+**Status: M0 to M6 and M8 done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
 A snapshotter keeps the room's folded state in the Felix cache, so a browser
@@ -112,7 +112,7 @@ the milestone plan.
 | 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | Done |
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | Done |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
-| 8 | Images, a compose install, your own IdP, a Helm chart | Anyone can self-host it | Done but the Helm chart |
+| 8 | Images, a compose install, your own IdP, a Helm chart | Anyone can self-host it | Done |
 | 9 | Rich text in shapes, merged when two people type at once | A CRDT rides the same log: snapshots, rejoin and replay still work | |
 
 Each milestone is tracked as a [GitHub milestone](https://github.com/gabloe/felix-canvas/milestones)
@@ -238,6 +238,9 @@ M8 makes it something you can run. What it proves, in CI:
 - The same install signed in through Dex instead of the development page, with
   members named by email, which is the path for any other OpenID Connect
   provider.
+- The Helm chart installs on kind next to the Felix chart, its seed Job mints
+  the broker credential the Felix chart then starts its brokers with, and two
+  browsers draw together through it.
 
 ## Repository layout
 
@@ -250,6 +253,7 @@ M8 makes it something you can run. What it proves, in CI:
 | `dev/` | Felix for local runs and CI: Docker Compose over the published images, a stand-in IdP, and the seed script |
 | `docker/` | The Dockerfiles for the two images |
 | `deploy/compose/` | The release compose file, its settings, and a Dex example |
+| `deploy/helm/felix-canvas/` | The Helm chart, run next to the Felix chart |
 | `docs/design.md` | The design: data model, editing and join rules, failure modes, targets |
 | `docs/protocol.md` | The browser to gateway protocol |
 | `docs/ux.md` | The UX and visual design brief the interface is built from |
@@ -341,7 +345,7 @@ docker compose up -d
 Then open <http://localhost:8787> and continue as `ana` or `ben`. The
 [self-hosting guide](docs/self-hosting.md) covers signing in with your own
 OpenID Connect provider, rooms and members, TLS, backups of the Felix data,
-upgrades, and every setting.
+upgrades, the Helm chart for Kubernetes, and every setting.
 
 ## License
 

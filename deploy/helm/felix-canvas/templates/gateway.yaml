@@ -1,0 +1,143 @@
+{{- $name := printf "%s-gateway" (include "canvas.fullname" .) -}}
+{{- $g := .Values.gateway -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ $g.replicas }}
+  selector:
+    matchLabels:
+      {{- include "canvas.selector" (list . "gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "canvas.selector" (list . "gateway") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      containers:
+        - name: gateway
+          image: {{ include "canvas.image" (list . $g.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "canvas.securityContext" . | nindent 12 }}
+          env:
+            {{- include "canvas.felixEnv" . | nindent 12 }}
+            - name: CANVAS_FELIX_CONTROL_PLANE
+              value: {{ required "felix.controlPlaneUrl is required" .Values.felix.controlPlaneUrl | quote }}
+            - name: CANVAS_OIDC_ISSUER
+              value: {{ include "canvas.issuer" . | quote }}
+            - name: CANVAS_OIDC_CLIENT_ID
+              value: {{ .Values.oidc.clientId | quote }}
+            - name: CANVAS_OIDC_SCOPES
+              value: {{ .Values.oidc.scopes | quote }}
+            - name: CANVAS_MEMBER_TTL_SECONDS
+              value: {{ $g.memberTtlSeconds | quote }}
+            {{- with $g.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8787
+          readinessProbe:
+            httpGet:
+              path: /oidc
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /oidc
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml $g.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "canvas.caMount" . | nindent 12 }}
+      volumes:
+        {{- include "canvas.caVolume" . | nindent 8 }}
+      {{- with $g.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $g.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $g.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+  {{- with $g.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $g.service.type }}
+  ports:
+    - name: http
+      port: {{ $g.service.port }}
+      targetPort: http
+  selector:
+    {{- include "canvas.selector" (list . "gateway") | nindent 4 }}
+{{- if $g.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ $g.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "canvas.selector" (list . "gateway") | nindent 6 }}
+{{- end }}
+{{- if $g.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+  {{- with $g.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $g.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $g.ingress.tlsSecret }}
+  tls:
+    - hosts: [{{ $g.ingress.host | quote }}]
+      secretName: {{ $g.ingress.tlsSecret }}
+  {{- end }}
+  rules:
+    - host: {{ required "gateway.ingress.host is required" $g.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- end }}

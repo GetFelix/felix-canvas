@@ -1,0 +1,115 @@
+{{- $fullname := include "canvas.fullname" . -}}
+{{- $name := printf "%s-seed" $fullname -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+---
+# Creating a Secret cannot be limited to a name; reading and replacing can.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames:
+      - {{ include "canvas.brokerSecret" . }}
+      - {{ include "canvas.snapshotterSecret" . }}
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+---
+# A new Job per revision, because a Job's template cannot change, and the
+# seed runs again at every upgrade to pick up new rooms and members.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-{{ .Release.Revision }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: seed
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "canvas.selector" (list . "seed") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: OnFailure
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: seed
+          image: {{ include "canvas.image" (list . .Values.snapshotter.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["dev/seed.mjs"]
+          securityContext:
+            {{- include "canvas.securityContext" . | nindent 12 }}
+          env:
+            - name: CANVAS_FELIX_CONTROL_PLANE
+              value: {{ required "felix.controlPlaneUrl is required" .Values.felix.controlPlaneUrl | quote }}
+            - name: CANVAS_FELIX_BOOTSTRAP
+              value: {{ required "seed.bootstrapUrl is required" .Values.seed.bootstrapUrl | quote }}
+            - name: CANVAS_FELIX_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "seed.bootstrapSecret.name is required" .Values.seed.bootstrapSecret.name }}
+                  key: {{ .Values.seed.bootstrapSecret.key }}
+            - name: CANVAS_SERVICE_IDP
+              value: http://{{ $fullname }}-tokens:9400
+            - name: CANVAS_STATE_DIR
+              value: /state
+            - name: CANVAS_TENANT
+              value: {{ .Values.felix.tenant | quote }}
+            - name: CANVAS_NAMESPACE
+              value: {{ .Values.felix.namespace | quote }}
+            - name: CANVAS_ROOMS
+              value: {{ .Values.rooms | quote }}
+            - name: CANVAS_OIDC_ISSUER
+              value: {{ include "canvas.issuer" . | quote }}
+            - name: CANVAS_OIDC_JWKS_URL
+              value: {{ .Values.devIdp.enabled | ternary (printf "http://%s-idp:9400/jwks.json" $fullname) .Values.oidc.jwksUrl | quote }}
+            - name: CANVAS_OIDC_CLIENT_ID
+              value: {{ .Values.oidc.clientId | quote }}
+            - name: CANVAS_OIDC_AUDIENCE
+              value: {{ .Values.oidc.audience | quote }}
+            - name: CANVAS_OIDC_SUBJECT_CLAIM
+              value: {{ .Values.oidc.subjectClaim | quote }}
+            - name: CANVAS_OIDC_GROUPS_CLAIM
+              value: {{ .Values.oidc.groupsClaim | quote }}
+            - name: CANVAS_BROKER_SECRET
+              value: {{ include "canvas.brokerSecret" . }}
+            - name: CANVAS_SNAPSHOTTER_SECRET
+              value: {{ include "canvas.snapshotterSecret" . }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          volumeMounts:
+            - name: state
+              mountPath: /state
+      volumes:
+        - name: state
+          emptyDir: {}

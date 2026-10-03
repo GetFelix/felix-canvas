@@ -1,0 +1,116 @@
+# Default values for the felix-canvas chart. docs/self-hosting.md describes
+# the install, and the canvas settings each value sets.
+
+image:
+  # Prepended to both image repositories below.
+  registry: ghcr.io
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# The Felix release this one runs next to.
+felix:
+  # The control plane's API, e.g. http://felix-controlplane:8443. Required.
+  controlPlaneUrl: ""
+  # Broker addresses as host:port, e.g. [felix-broker:5000]. Required.
+  brokers: []
+  # The name the brokers' client certificate is checked against.
+  serverName: localhost
+  # A Secret holding the PEM certificates to trust for the brokers. Empty
+  # means the public roots.
+  caSecret:
+    name: ""
+    key: ca.crt
+  tenant: canvas
+  namespace: default
+
+# The identity provider browsers sign in with.
+oidc:
+  # Its issuer URL, exactly as ID tokens carry it. Required unless devIdp is on.
+  issuer: ""
+  clientId: felix-canvas
+  scopes: openid profile
+  # Where Felix fetches the provider's keys. Empty means its discovery document.
+  jwksUrl: ""
+  # The audience ID tokens carry. Empty means the client ID.
+  audience: ""
+  subjectClaim: sub
+  groupsClaim: ""
+
+# Rooms and who may open each: room=member,member separated by spaces.
+rooms: lobby=ana,ben studio=ana
+
+gateway:
+  image:
+    repository: gabloe/felix-canvas
+    # Pin by digest in production: images are signed by digest. Wins over the tag.
+    digest: ""
+  # Gateways hold no state, so any number serve any room.
+  replicas: 2
+  memberTtlSeconds: 30
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+  # The page and /ws on one host. The controller must pass WebSocket upgrades.
+  ingress:
+    enabled: false
+    className: ""
+    host: ""
+    annotations: {}
+    # A kubernetes.io/tls Secret for the host. Browsers need HTTPS to sign in.
+    tlsSecret: ""
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Exactly one, always: a second would split each room's records and write
+# wrong snapshots.
+snapshotter:
+  image:
+    repository: gabloe/felix-canvas-snapshotter
+    digest: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# A Job at every install and upgrade that creates the tenant, the rooms and
+# their roles, and stores the broker's and the snapshotter's tokens in
+# Secrets. It signs the service accounts in with an internal provider
+# (felix#954), which this chart runs as <release>-tokens.
+seed:
+  # The control plane's bootstrap listener, e.g.
+  # http://felix-controlplane-bootstrap:9095. Required.
+  bootstrapUrl: ""
+  # A Secret holding the bootstrap token. Required.
+  bootstrapSecret:
+    name: ""
+    key: token
+  # The Secret the broker credential goes to, for the felix chart's
+  # broker.credential.existingSecret. Empty means <release>-broker-credential.
+  brokerCredentialSecret: ""
+
+# The development sign-in page, which signs in anyone who picks a name. For
+# trying the chart out only. Browsers must reach it at `issuer`.
+devIdp:
+  enabled: false
+  issuer: http://127.0.0.1:9400
+  users: ana,ben
