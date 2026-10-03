@@ -76,3 +76,35 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
+
+  browsers:
+    name: Two browsers against Felix
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @felix-canvas/model
+      - name: Build the gateway
+        run: cargo build --locked -p felix-canvas-gateway
+      - name: Install Chromium
+        run: npx -w @felix-canvas/web playwright install --with-deps chromium
+      - name: Start Felix
+        run: dev/up.sh
+      - name: Playwright
+        run: npm run test:e2e -w @felix-canvas/web
+      - name: Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+      - name: Felix logs
+        if: failure()
+        run: docker compose -f dev/docker-compose.yml logs

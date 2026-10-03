@@ -4,9 +4,9 @@ A multiplayer drawing canvas whose entire backend is [Felix](https://github.com/
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
 caches, with no Postgres, Redis or Kafka beside it.
 
-**Status: M0 done.** A browser reaches Felix through the WebSocket gateway:
-two tabs publish to one room's durable op stream and see each other's records
-in the same offset order. The canvas itself starts at M1.
+**Status: M1 done.** Two browsers draw rectangles, ellipses, lines and pen
+strokes in one room and drag the same shape at once. Each one's canvas is a fold
+of the room's Felix log in offset order, and both end with the same state hash.
 
 ## Why it exists
 
@@ -75,7 +75,7 @@ the milestone plan.
 | M | Milestone | Proves | Status |
 |---|---|---|---|
 | 0 | WebSocket gateway relaying publish/subscribe | A browser can reach Felix at all | Done |
-| 1 | Two browsers, shapes, offset-ordered apply | The log is the document | |
+| 1 | Two browsers, shapes, offset-ordered apply | The log is the document | Done |
 | 2 | Snapshotter and the join path | A cold client joins a busy room correctly | |
 | 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real | |
 | 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | |
@@ -99,16 +99,30 @@ Felix images:
 - The gateway reports its browser leg and its Felix leg as separate latency
   histograms.
 
+M1 makes the log the document. What it proves, in CI against the same images:
+
+- Two browsers draw in one room, each sees the other's shapes, and both drag one
+  rectangle at the same time. Once neither has an edit in flight, both have
+  applied the same log prefix and their state hashes match.
+- A third browser that joins afterwards replays the log from offset 0 and
+  reaches the same hash.
+- Unit tests show that the fold converges under concurrent writes to one field
+  and to different fields, and that records delivered out of order and twice
+  end in the same state as in-order delivery.
+- Each session's sequence numbers come from the Felix counter
+  `canvas.seq/<room>:<session>`, reserved through the gateway.
+
 ## Repository layout
 
 | Path | What |
 |---|---|
 | `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes |
-| `model/` | The op schema and its MessagePack encoding, shared by the browser and the future snapshotter |
-| `web/` | The browser client. For M0, a test page that publishes ops and lists what the log delivers |
+| `model/` | The op schema, its MessagePack encoding, the fold and the state hash, shared by the browser and the future snapshotter |
+| `web/` | The browser client: Canvas2D renderer, tools, the op pipeline, and the Playwright test |
 | `dev/` | Felix for local runs and CI: Docker Compose over the published images, a stand-in IdP, and a seed script |
 | `docs/design.md` | The design: data model, editing and join rules, failure modes, targets |
 | `docs/protocol.md` | The browser to gateway protocol |
+| `docs/ux.md` | The UX and visual design brief the interface is built from |
 | `docs/development.md` | Where to run it, the lockfile rule, the dev stack and CI |
 | `CONTRIBUTING.md` | How code, comments and pull requests should read |
 
@@ -136,7 +150,7 @@ and Node 24.
    cargo run -p felix-canvas-gateway
    ```
 
-3. Start the page, which proxies `/ws` to the gateway:
+3. Start the page, which proxies `/ws` and `/metrics` to the gateway:
 
    ```bash
    npm install
@@ -144,16 +158,24 @@ and Node 24.
    npm run dev -w @felix-canvas/web
    ```
 
-4. Open <http://localhost:5173> in two tabs. Type a label in one and press
-   **Publish op**: the op appears in both tabs at the same offset, marked `you`
-   in the tab that sent it. Enter an offset under **Subscribe** to replay the
-   log from there.
+4. Open <http://localhost:5173> in two windows and draw: <kbd>R</kbd> for a
+   rectangle, <kbd>O</kbd> an ellipse, <kbd>L</kbd> a line, <kbd>P</kbd> the pen,
+   <kbd>V</kbd> to select and drag, and <kbd>?</kbd> for every shortcut. The chip
+   at the top right shows how long your changes take to save; click it for the
+   sync details, including the canvas version both windows should share.
 
 `curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variables
 from step 2 exported, the integration tests run against the same stack:
 
 ```bash
 cargo test -- --include-ignored
+```
+
+The two-browser test starts its own gateway and page against the running stack:
+
+```bash
+npx -w @felix-canvas/web playwright install chromium
+npm run test:e2e -w @felix-canvas/web
 ```
 
 The gateway reads `CANVAS_LISTEN`, `CANVAS_FELIX_BROKERS`,

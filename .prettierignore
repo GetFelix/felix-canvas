@@ -4,3 +4,5 @@ dev/state/
 package-lock.json
 *.md
 *.yml
+test-results/
+playwright-report/

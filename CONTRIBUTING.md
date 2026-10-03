@@ -39,5 +39,4 @@ This page is how code and pull requests should read.
 
 The canvas is Felix's showcase, so the interface has to be polished and use the
 real Felix brand: the cat mark from the Felix repository, the cyan-teal accent,
-Inter and JetBrains Mono. Build from the design brief in `docs/ux.md` (added with
-M1; until then it is the comment on [#27](https://github.com/gabloe/felix-canvas/issues/27)).
+Inter and JetBrains Mono. Build from the design brief in [docs/ux.md](docs/ux.md).

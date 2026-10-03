@@ -93,7 +93,8 @@ function checkRange(name: string, value: bigint, max: bigint): void {
   }
 }
 
-function u128ToBytes(value: bigint): Uint8Array {
+/** A u128 as 16 bytes, big-endian: how shape ids go on the wire. */
+export function u128ToBytes(value: bigint): Uint8Array {
   const bytes = new Uint8Array(16);
   for (let i = 15; i >= 0; i--) {
     bytes[i] = Number(value & 0xffn);
@@ -102,7 +103,8 @@ function u128ToBytes(value: bigint): Uint8Array {
   return bytes;
 }
 
-function bytesToU128(bytes: Uint8Array): bigint {
+/** The inverse of {@link u128ToBytes}. */
+export function bytesToU128(bytes: Uint8Array): bigint {
   let value = 0n;
   for (const byte of bytes) {
     value = (value << 8n) | BigInt(byte);
