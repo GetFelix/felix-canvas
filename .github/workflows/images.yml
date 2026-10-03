@@ -121,7 +121,7 @@ jobs:
           retention-days: 1
 
   manifest:
-    name: Publish ${{ matrix.image }}
+    name: Publish
     needs: build
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
