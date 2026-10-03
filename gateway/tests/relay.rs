@@ -415,6 +415,12 @@ async fn members_are_listed_watched_and_expire() {
         .await;
     assert_eq!(watcher.member_change(&key).await["payload"], Value::Null);
 
+    member.send(set.clone()).await;
+    watcher.member_change(&key).await;
+    assert_eq!(http_post(addr, "/members/leave", &key).await, 204);
+    assert_eq!(watcher.member_change(&key).await["payload"], Value::Null);
+    assert_eq!(http_post(addr, "/members/leave", "a:b").await, 400);
+
     member.send(set).await;
     watcher.member_change(&key).await;
     assert!(Browser::open(addr).await.member_keys().await.contains(&key));
@@ -429,6 +435,18 @@ async fn members_are_listed_watched_and_expire() {
         .send(json!({"type": "set_member", "key": "a:b", "payload": ""}))
         .await;
     assert_eq!(member.recv().await["code"], "bad_request");
+}
+
+async fn http_post(addr: SocketAddr, path: &str, body: &str) -> u16 {
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).await.unwrap();
+    response[9..12].parse().unwrap()
 }
 
 async fn http_get(addr: SocketAddr, path: &str) -> Value {

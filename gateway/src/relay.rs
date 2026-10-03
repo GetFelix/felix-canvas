@@ -228,11 +228,11 @@ async fn write_in_order(
     }
 }
 
-const BAD_KEY: &str = "a key is 1 to 64 ASCII letters, digits, '-' or '_'";
+pub(crate) const BAD_KEY: &str = "a key is 1 to 64 ASCII letters, digits, '-' or '_'";
 
 // Keys become part of a Felix cache key shared by every connection, so they
 // are kept to a plain alphabet rather than passed through.
-fn valid_key(key: &str) -> bool {
+pub(crate) fn valid_key(key: &str) -> bool {
     (1..=64).contains(&key.len())
         && key
             .bytes()

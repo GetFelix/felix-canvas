@@ -173,7 +173,11 @@ export class Session {
   /** Leave the member list at once, for a tab that is closing. */
   leave(): void {
     this.#member = null;
-    this.#client?.removeMember(memberKey(this.sid));
+    const key = memberKey(this.sid);
+    // The socket message keeps order with a refresh still queued; the beacon
+    // is what survives the page unloading.
+    this.#client?.removeMember(key);
+    navigator.sendBeacon(new URL("/members/leave", this.#url.replace(/^ws/, "http")), key);
   }
 
   /** Drop member entries past their deadline. */

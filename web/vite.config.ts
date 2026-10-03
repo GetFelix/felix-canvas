@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       "/ws": { target: `ws://${gateway}`, ws: true },
       "/metrics": { target: `http://${gateway}` },
+      "/members": { target: `http://${gateway}` },
     },
   },
 });

@@ -118,6 +118,11 @@ Deletes the entry at once, for a tab that is closing. A connection's member
 writes and publishes reach Felix one at a time in the order sent, so a delete is
 never overtaken by the refresh before it.
 
+A message sent while a page unloads may never leave it, so a closing tab also
+sends the key as the body of `POST /members/leave` with `navigator.sendBeacon`,
+which the browser delivers after the page is gone. The gateway answers 204, or
+400 for a bad key.
+
 ### `watch_members`
 
 ```json
