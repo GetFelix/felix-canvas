@@ -1,0 +1,71 @@
+# Development
+
+How to work on Felix Canvas: where to run it, the rules the lockfile follows, and
+what CI checks. The [README](../README.md#running-locally) has the commands for a
+local run.
+
+## Where to run it
+
+Everything runs on one machine: Docker for Felix, Rust for the gateway, and Node
+for `model/`, `web/` and the snapshotter.
+
+| Environment | When | Notes |
+|---|---|---|
+| Your machine | Docker and npmjs.org are both available | Follow the README. |
+| GitHub Codespace | npmjs.org is blocked, or you don't want Docker locally | The default image has Node and Docker. Install Rust with rustup; `rust-toolchain.toml` pins the version. Use the 4-core machine: the Felix images, the gateway build and Playwright run side by side. |
+| CI | Every push and pull request | The same checks as below, against the published Felix images. |
+
+A Codespace can be driven from another machine. Write an ssh config once, then
+sync edits with rsync and run commands over `gh`:
+
+```bash
+gh codespace ssh -c <name> --config > ~/.ssh/codespaces
+rsync -az --exclude .git --exclude node_modules --exclude target \
+  -e "ssh -F $HOME/.ssh/codespaces" ./ cs.<name>.main:/workspaces/felix-canvas/
+gh codespace ssh -c <name> -- 'cd /workspaces/felix-canvas && npm test'
+```
+
+Delete the Codespace when the work is merged.
+
+## npm registry and the lockfile
+
+`.npmrc` pins `registry=https://registry.npmjs.org/`, and the project file wins
+over a user-level `~/.npmrc`. Don't install through a mirror. A corporate mirror
+can rewrite `package-lock.json` to resolve from private feeds that CI can't reach,
+and can downgrade integrity hashes from sha512 to sha1.
+
+CI fails if any lockfile entry resolves from anywhere but npmjs.org or lacks a
+sha512 hash. Generate lockfile changes on a machine that reaches npmjs.org, or in
+a Codespace.
+
+## The Felix dev stack
+
+`dev/up.sh` starts the broker and control plane from
+`ghcr.io/gabloe/felix-broker` and `felix-controlplane` at the version pinned in
+`dev/docker-compose.yml`, creates the room's streams, and writes the gateway's
+token and the broker's certificate to `dev/state/`. Every run starts from an empty
+log.
+
+Three settings there exist only because of Felix gaps, each filed upstream:
+
+| Setting | Why | Felix issue |
+|---|---|---|
+| `dev/idp.mjs`, a stand-in identity provider | Felix issues client tokens only in exchange for an IdP token | [#954](https://github.com/gabloe/felix/issues/954) |
+| `FELIX_EXCHANGE_TOKEN_TTL_SECONDS=86400` | A standalone broker reads its node token once, so the default 900 s would end a dev session after 15 minutes | [#955](https://github.com/gabloe/felix/issues/955) |
+| `FELIX_ACK_ON_COMMIT=true` | Only an ack after the write carries the record's offset, and that is a broker-wide setting | [#956](https://github.com/gabloe/felix/issues/956) |
+
+## What CI checks
+
+| Job | Checks |
+|---|---|
+| Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
+| Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it |
+| TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests |
+
+## Milestones and issues
+
+Work follows the build order in [design.md](design.md#build-order). Each milestone
+is a [GitHub milestone](https://github.com/gabloe/felix-canvas/milestones), each
+piece of it is an issue, and each milestone lands as one pull request that closes
+its issues. When Felix gets in the way, file an issue on
+[Felix](https://github.com/gabloe/felix/issues) and link it from the pull request.

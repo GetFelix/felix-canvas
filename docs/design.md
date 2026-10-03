@@ -154,6 +154,11 @@ The canvas client and the snapshotter share the op schema, its encoding and
 the fold through the `model/` package, so the state a browser renders and the
 state a snapshot stores come from the same code.
 
+The gateway is Rust because it never needs that code. It relays bytes, so the
+language boundary keeps it from growing canvas logic, and it can move into Felix
+later as a first-party browser bridge built on `felix-client`. It also fans out
+to many sessions without a JavaScript round trip per event.
+
 The snapshotter is a separate process on purpose. Snapshot writes are throughput
 work and must never share a fate with an interactive socket, and running it as a
 consumer group gives it redelivery and dead-lettering for free.
