@@ -5,14 +5,18 @@ import "./styles.css";
 import { EMPTY_DOC, inZOrder, stateHash, type Doc } from "@felix-canvas/model";
 
 import { Chrome } from "./chrome.js";
+import { Coalescer } from "./coalesce.js";
 import { Editor } from "./editor.js";
-import { Peers, ownName } from "./peers.js";
+import { assignColor } from "./members.js";
+import { Peers, ownName, ownPersonId, saveName } from "./peers.js";
 import { render, type Palette } from "./render.js";
 import { Session } from "./session.js";
 import { readShape, type Shape } from "./shapes.js";
 
 /** Idle sessions still announce themselves this often, so peers know they are here. */
 const HEARTBEAT_MS = 3000;
+/** At most one presence message a frame, and no more than 60 a second on faster screens. */
+const PRESENCE_GAP_MS = 16;
 
 function gatewayUrl(): string {
   const override = new URLSearchParams(location.search).get("gateway");
@@ -24,7 +28,8 @@ function gatewayUrl(): string {
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 const session = new Session(gatewayUrl());
-const name = ownName();
+let name = ownName();
+const person = ownPersonId();
 
 let shapesOf: { doc: Doc; shapes: Shape[] } = { doc: EMPTY_DOC, shapes: [] };
 function shapes(): Shape[] {
@@ -37,12 +42,11 @@ function shapes(): Shape[] {
 
 const editor = new Editor(canvas, session, shapes);
 const peers = new Peers(document.getElementById("cursors")!);
-const chrome = new Chrome(session, editor, name);
+const chrome = new Chrome(session, editor, name, person);
 
 let palette = readPalette();
 let dirty = true;
-let presenceDirty = true;
-let presenceSentAt = 0;
+const presence = new Coalescer(PRESENCE_GAP_MS, HEARTBEAT_MS);
 let joinStartedAt = 0;
 /** Milliseconds from starting to join until the first correct frame was drawn. */
 let firstFrameMs: number | null = null;
@@ -61,27 +65,39 @@ function readPalette(): Palette {
   };
 }
 
-const ownColor = () => peers.colorFor(session.sid);
+const ownColor = () => assignColor(person, session.members.list());
 
 session.onDocChange = () => {
   editor.prune();
   dirty = true;
 };
 session.onStatusChange = () => chrome.refresh();
-session.onPresence = (presence) => {
-  if (peers.update(presence)) {
-    chrome.setPeers(peers.list(), ownColor());
-    presenceDirty = true;
+session.onPresence = (message) => {
+  if (peers.update(message)) {
+    chrome.setPeers(peers.list());
     dirty = true;
   }
 };
+// Own colour depends on who else is here, and the entry carries it.
+function membersChanged(): void {
+  const color = ownColor();
+  session.setMember({ name, color, person });
+  chrome.setMembers(session.members.list(), color);
+  presence.mark();
+}
+session.onMembersChange = membersChanged;
 editor.onChange = () => {
   dirty = true;
-  presenceDirty = true;
+  presence.mark();
 };
 editor.onStateChange = () => {
   chrome.syncEditor();
-  presenceDirty = true;
+  presence.mark();
+};
+chrome.onRename = (newName) => {
+  name = newName;
+  saveName(name);
+  membersChanged();
 };
 editor.onRefused = () => chrome.toast("Offline for too long: reconnect to keep editing");
 chrome.onThemeChange = () => {
@@ -104,7 +120,7 @@ function frame(now: number): void {
   last = now;
   const { moving, changed } = peers.tick(dt, editor.camera, now);
   if (changed) {
-    chrome.setPeers(peers.list(), ownColor());
+    chrome.setPeers(peers.list());
     dirty = true;
   }
   if (dirty || moving) {
@@ -123,23 +139,26 @@ function frame(now: number): void {
     dirty = false;
     if (firstFrameMs === null && session.hasFrame) firstFrameMs = now - joinStartedAt;
   }
-  // At most one presence message a frame, and a heartbeat when idle.
-  if ((presenceDirty && now - presenceSentAt >= 16) || now - presenceSentAt > HEARTBEAT_MS) {
+  if (presence.take(now)) {
     session.publishPresence({
       name,
       color: ownColor(),
       cursor: editor.pointer,
       selection: [...editor.selection],
     });
-    presenceSentAt = now;
-    presenceDirty = false;
   }
   requestAnimationFrame(frame);
 }
 
-addEventListener("pagehide", () =>
-  session.publishPresence({ name, color: ownColor(), cursor: null, selection: [], gone: true }),
-);
+addEventListener("pagehide", () => {
+  session.leave();
+  session.publishPresence({ name, color: ownColor(), cursor: null, selection: [], gone: true });
+});
+// A tab restored from the back-forward cache comes back after its goodbye.
+addEventListener("pageshow", (event) => {
+  if (event.persisted) membersChanged();
+});
+setInterval(() => session.expireMembers(), 250);
 
 // The end-to-end tests compare replicas across browsers through this.
 Object.assign(window, {
@@ -154,7 +173,7 @@ Object.assign(window, {
 });
 
 editor.centre(0, 0);
-chrome.setPeers([], ownColor());
+membersChanged();
 joinStartedAt = performance.now();
 session.start();
 requestAnimationFrame(frame);

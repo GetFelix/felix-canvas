@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_U128,
   PresenceDecodeError,
+  decodeMember,
   decodePresence,
+  encodeMember,
   encodePresence,
   type Presence,
 } from "../src/index.js";
@@ -44,6 +46,25 @@ describe("encodePresence and decodePresence", () => {
       encode({ ...valid, sel: [1] }),
     ]) {
       expect(() => decodePresence(bytes)).toThrow(PresenceDecodeError);
+    }
+  });
+});
+
+describe("encodeMember and decodeMember", () => {
+  it("round-trip a member entry", () => {
+    const member = { name: "Ana", color: 5, person: 0xfedc_ba98_7654_3210n };
+    expect(decodeMember(encodeMember(member))).toEqual(member);
+  });
+
+  it("reject bytes that are not a member entry", () => {
+    for (const bytes of [
+      new Uint8Array([0xc1]),
+      encode("Ana"),
+      encode({ name: "Ana", person: 1 }),
+      encode({ name: "Ana", color: 1 }),
+      encode({ name: "Ana", color: 1, person: -1 }),
+    ]) {
+      expect(() => decodeMember(bytes)).toThrow(PresenceDecodeError);
     }
   });
 });

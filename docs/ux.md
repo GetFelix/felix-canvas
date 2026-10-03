@@ -27,7 +27,7 @@ Five floating islands over a full-bleed canvas. No permanent side panels.
 
 - Islands sit 12 px from the viewport edge, use the panel surface, and never overlap.
 - A contextual style bar (fill, stroke, width, label) floats 8 px above the selection's bounding box, flipping below when there is no room, as in Whimsical and FigJam ([Whimsical](https://whimsical.com/blog/contextual-toolbars-deep-dive)).
-- Avatar stack: 28 px circles, 2 px ring in the panel colour, overlap by 8 px, at most four then a "+N" pill. Hover shows name and "Following" or "Idle 2m". Click to follow.
+- Avatar stack: 28 px circles, 2 px ring in the panel colour, overlap by 8 px, at most four then a "+N" pill. Hover shows name and "Following" or "Away · 2m". Click opens the people list (see Presence); following comes later.
 - Minimap is off by default; a 200 x 140 px panel above the zoom controls when on, showing the viewport rectangle in the accent and other users' viewports as thin outlines in their colour.
 - `Cmd+\` hides all chrome except the status chip, matching Figma's hide-UI shortcut.
 - At phone width the tool bar stays bottom centre and scrolls horizontally inside itself; the room name truncates; the zoom island collapses to the percentage button.
@@ -85,7 +85,8 @@ Tool tooltips appear after 500 ms on first hover and instantly when moving betwe
 - **Others' selections**: 1.5 px outline in their colour, plus a small name tag on the top-left corner of the bounding box. Shapes another user is dragging get the same outline, so it is always clear whose hand is on what.
 - **Off-screen users**: a small arrow in their colour pinned to the viewport edge, pointing at their cursor, as tldraw does. Click it to jump there.
 - **Follow**: click an avatar. The camera eases toward their viewport, fast at first, then locks once within 2 px, as tldraw's follow chase does; follow chains resolve to the leader; any canvas interaction stops following ([tldraw following](https://tldraw.dev/sdk-features/user-following)). While following, a 2 px border in the leader's colour frames the viewport with "Following Ana · Esc to stop" in a pill at top centre.
-- **Idle**: no pointer movement for 10 s fades the cursor and pill to 0 over 400 ms and dims the avatar to 50%. Membership expiry (the 30 s TTL in the design) removes the avatar with a 200 ms shrink. Freeform announces joins and leaves ([Apple](https://support.apple.com/guide/freeform/collaborate-on-a-shared-board-frfm4e6e2c9a6/mac)); do that with a 2 s toast only while the room has fewer than ten people.
+- **Idle**: no pointer movement for 10 s fades the cursor and pill to 0 over 400 ms and dims the avatar to 50%. The label is "Away", with the time once it passes a minute ("Away · 2m"); a tab in the background reads the same way.
+- **People list**: clicking the avatar stack opens a 280 px popover titled "3 people here" (or "Just you here"): you first with your name editable in place, then everyone else with a green dot and "Active", or "Away". Until follow exists, this is what the click does. Membership expiry (the 30 s TTL in the design) removes the avatar with a 200 ms shrink. Freeform announces joins and leaves ([Apple](https://support.apple.com/guide/freeform/collaborate-on-a-shared-board-frfm4e6e2c9a6/mac)); do that with a 2 s toast only while the room has fewer than ten people.
 - A "Hide cursors" toggle lives in the view menu, per user, as in Miro ([Miro](https://community.miro.com/ask-the-community-45/hide-collaborators-cursors-moved-18024)).
 
 ## History scrubber

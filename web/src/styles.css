@@ -265,8 +265,8 @@ kbd {
   padding-right: 2px;
 }
 
-.avatars:empty {
-  display: none;
+.island .avatars {
+  padding: 0 4px;
 }
 
 .avatar {
@@ -284,10 +284,24 @@ kbd {
   transition:
     opacity 400ms linear,
     transform 200ms var(--ease-out);
+  animation: avatar-in 200ms var(--ease-out);
+}
+
+@keyframes avatar-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
 }
 
 .avatar:first-child {
   margin-left: 0;
+}
+
+.avatar.leaving {
+  opacity: 0;
+  transform: scale(0.4);
+  transition-duration: 200ms;
 }
 
 .avatar.idle {
@@ -470,7 +484,7 @@ kbd {
   background: var(--border);
 }
 
-.menu [role="menuitem"] {
+.menu :is([role="menuitem"], [role="menuitemcheckbox"]) {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -482,18 +496,36 @@ kbd {
   text-align: left;
 }
 
-.menu [role="menuitem"] span {
+.menu :is([role="menuitem"], [role="menuitemcheckbox"]) span {
   flex: 1;
 }
 
-.menu [role="menuitem"] .lucide {
+.menu :is([role="menuitem"], [role="menuitemcheckbox"]) .lucide {
   width: 16px;
   height: 16px;
   color: var(--text-muted);
 }
 
-.menu [role="menuitem"]:hover {
+.menu :is([role="menuitem"], [role="menuitemcheckbox"]):hover {
   background: var(--hover);
+}
+
+/* A small switch for on and off items. */
+.menu [role="menuitemcheckbox"]::after {
+  content: "";
+  width: 24px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--pressed);
+  box-shadow: inset 0 0 0 2px var(--pressed);
+  background-image: radial-gradient(circle at 7px 50%, var(--panel-raised) 5px, transparent 5.5px);
+  transition: background-color 100ms ease-out;
+}
+
+.menu [role="menuitemcheckbox"][aria-checked="true"]::after {
+  background-color: var(--text);
+  box-shadow: inset 0 0 0 2px var(--text);
+  background-image: radial-gradient(circle at 17px 50%, var(--panel-raised) 5px, transparent 5.5px);
 }
 
 .menu kbd {
@@ -529,6 +561,111 @@ kbd {
 .segmented .lucide {
   width: 16px;
   height: 16px;
+}
+
+/* People */
+
+.people {
+  top: calc(var(--edge) + 50px);
+  right: var(--edge);
+  width: 280px;
+  padding: 12px 8px 10px;
+}
+
+.people header {
+  padding: 0 6px 6px;
+  font-weight: 550;
+}
+
+.people-list {
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.person {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 6px;
+}
+
+.person.you {
+  height: 44px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.person .avatar {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  box-shadow: none;
+  font-size: 11px;
+  animation: none;
+}
+
+.person-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+
+input.person-name {
+  width: 100%;
+  height: 28px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 550;
+  cursor: text;
+  transition:
+    background-color 100ms ease-out,
+    border-color 100ms ease-out;
+}
+
+input.person-name:hover {
+  background: var(--hover);
+}
+
+input.person-name:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--panel);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.person-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.person-status[data-active="true"]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.people .note {
+  margin: 8px 6px 0;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .status {
@@ -834,12 +971,15 @@ kbd {
 
 @media (max-width: 640px) {
   .room-island {
-    max-width: calc(100vw - 2 * var(--edge) - 190px);
+    max-width: calc(100vw - 2 * var(--edge) - 220px);
+  }
+  /* One face is enough to open the full list. */
+  .avatars .avatar:not(:first-child) {
+    display: none;
   }
   .workspace,
   .slash,
   .share span,
-  .avatars,
   #zoom-in,
   #zoom-out {
     display: none;

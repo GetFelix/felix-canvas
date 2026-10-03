@@ -22,11 +22,13 @@
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
 caches. You run it yourself: Felix, a stateless gateway, a snapshotter and the web app.
 
-**Status: M2 done.** Two browsers draw rectangles, ellipses, lines and pen
+**Status: M3 done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
 A snapshotter keeps the room's folded state in the Felix cache, so a browser
 joining a busy room draws it at once and reads only the recent changes.
+Everyone sees everyone else's cursor and name, and a member list that drops a
+closed laptop on its own.
 Packaged images for self-hosting come in M8; until then, see
 [Running locally](#running-locally).
 
@@ -99,7 +101,7 @@ the milestone plan.
 | 0 | WebSocket gateway relaying publish/subscribe | A browser can reach Felix at all | Done |
 | 1 | Two browsers, shapes, offset-ordered apply | The log is the document | Done |
 | 2 | Snapshotter and the join path | A cold client joins a busy room correctly | Done |
-| 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real | |
+| 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real | Done |
 | 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | |
 | 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | |
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | |
@@ -151,6 +153,21 @@ M2 makes joining cheap. What it proves, in CI against the same images:
 - A cold browser joining a room of 10,000 ops while another session edits draws
   its first correct frame in under 500 ms and ends with the same state hash as a
   browser that saw every op live.
+
+M3 splits what must last from what must be fast. What it proves, in CI against
+the same images:
+
+- Two browsers see each other's cursors follow the pointer, with names, through
+  the in-memory presence stream. Each browser sends at most one cursor message a
+  frame, fire-and-forget; unit tests pin the pacing down.
+- Each session keeps a member entry, `canvas.presence/<room>:<session>`, with a
+  30 second TTL that it refreshes every 10 seconds. Browsers read the list
+  through one retained prefix watch. A tab that closes deletes its entry at
+  once; a tab that crashes drops out of the other browser's list when the
+  entry expires, not before.
+- A person keeps their colour and shows once in the list across a reload,
+  because colours come from an id the browser keeps, not from the session.
+- The gateway lists, watches and expires member entries against a real broker.
 
 ## Repository layout
 
@@ -233,10 +250,11 @@ npm run test:e2e -w @felix-canvas/web
 
 The gateway reads `CANVAS_LISTEN`, `CANVAS_FELIX_BROKERS`,
 `CANVAS_FELIX_SERVER_NAME`, `CANVAS_FELIX_CA_FILE`, `CANVAS_FELIX_TOKEN`,
-`CANVAS_TENANT`, `CANVAS_NAMESPACE` and `CANVAS_ROOM`; see
+`CANVAS_TENANT`, `CANVAS_NAMESPACE`, `CANVAS_ROOM` and
+`CANVAS_MEMBER_TTL_SECONDS`; see
 [`gateway/src/config.rs`](gateway/src/config.rs) for their defaults. The
-snapshotter reads the same ones except `CANVAS_LISTEN`, and four of its own
-listed in [docs/development.md](docs/development.md#the-felix-dev-stack).
+snapshotter reads the same ones except `CANVAS_LISTEN` and the member TTL, and
+four of its own listed in [docs/development.md](docs/development.md#the-felix-dev-stack).
 
 ## License
 

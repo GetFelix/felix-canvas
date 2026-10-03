@@ -20,7 +20,8 @@ import {
 } from "lucide";
 
 import type { Editor, Tool } from "./editor.js";
-import { PEER_COLORS, type Peer } from "./peers.js";
+import type { RoomMember } from "./members.js";
+import { MAX_NAME, PEER_COLORS, paletteIndex, type Peer } from "./peers.js";
 import type { Session } from "./session.js";
 
 type Theme = "system" | "light" | "dark";
@@ -33,6 +34,20 @@ const RECONNECT_GRACE_MS = 800;
 const CONVERGED_MS = 2000;
 const MAX_AVATARS = 4;
 const TOOLTIP_DELAY_MS = 500;
+/** Joins and leaves are announced only in rooms smaller than this. */
+const ANNOUNCE_BELOW = 10;
+/** Matches the avatar's shrink transition. */
+const AVATAR_LEAVE_MS = 200;
+
+/** Someone shown in the avatar stack and the people list. */
+interface Person {
+  key: string;
+  name: string;
+  color: string;
+  you: boolean;
+  /** "You", "Active" or "Away", with how long for. */
+  status: string;
+}
 
 const element = <T extends Element = HTMLElement>(id: string) =>
   document.getElementById(id) as unknown as T;
@@ -44,12 +59,19 @@ const element = <T extends Element = HTMLElement>(id: string) =>
 export class Chrome {
   /** Called when the theme changed and the canvas must reread its colours. */
   onThemeChange: () => void = () => {};
+  /** Called when this person chose a new name. */
+  onRename: (name: string) => void = () => {};
 
   readonly #session: Session;
   readonly #editor: Editor;
-  readonly #name: string;
+  #name: string;
   #ownColor = 0;
   #peers: Peer[] = [];
+  #members: RoomMember[] = [];
+  /** Other members' names by session, once the first list has arrived. */
+  #known: Map<bigint, string> | null = null;
+  readonly #person: bigint;
+  readonly #avatarNodes = new Map<string, HTMLElement>();
   #pendingSince: number | null = null;
   #disconnectedAt: number | null = null;
   #metrics: { browser: number; felix: number } | null = null;
@@ -58,7 +80,8 @@ export class Chrome {
   #convergedAt: number | null = null;
   #toastTimer = 0;
 
-  constructor(session: Session, editor: Editor, name: string) {
+  constructor(session: Session, editor: Editor, name: string, person: bigint) {
+    this.#person = person;
     this.#session = session;
     this.#editor = editor;
     this.#name = name;
@@ -94,6 +117,7 @@ export class Chrome {
     this.#wireToolbar();
     this.#wireMenu();
     this.#wireStatus();
+    this.#wirePeople();
     this.#wireTooltips();
     this.#wireKeys();
     element("share").addEventListener("click", () => this.#share());
@@ -118,11 +142,30 @@ export class Chrome {
     this.#toastTimer = window.setTimeout(() => toast.classList.remove("shown"), 2000);
   }
 
-  /** This session's palette index changed, or the peer list did. */
-  setPeers(peers: Peer[], ownColor: number): void {
+  /** Cursor activity changed, which decides who shows as away. */
+  setPeers(peers: Peer[]): void {
     this.#peers = peers;
+    this.#renderPeople();
+  }
+
+  /** The member list changed, or this session's palette index did. */
+  setMembers(members: RoomMember[], ownColor: number): void {
+    this.#members = members;
     this.#ownColor = ownColor;
-    this.#renderAvatars();
+    // Keyed by person, so a reload or a second tab is not a join or a leave.
+    const others = new Map(
+      this.#others().map((entries) => [entries[0]!.person, entries.at(-1)!.name]),
+    );
+    if (this.#known && others.size + 1 < ANNOUNCE_BELOW) {
+      for (const [person, name] of others) {
+        if (!this.#known.has(person)) this.toast(`${name} joined`);
+      }
+      for (const [person, name] of this.#known) {
+        if (!others.has(person)) this.toast(`${name} left`);
+      }
+    }
+    this.#known = others;
+    this.#renderPeople();
   }
 
   /** Reflect the editor's tool and zoom. */
@@ -192,6 +235,8 @@ export class Chrome {
       state === "behind" && progress ? `${progress.fraction * 100}%` : "0";
 
     if (!element("status").hidden) this.#renderStatus();
+    // "Away" carries a duration, so it ages even when nothing else changes.
+    this.#renderPeople();
   }
 
   /** How far catching up has got, once the session knows where it started. */
@@ -244,6 +289,7 @@ export class Chrome {
       : "none";
     element("status-server").textContent = this.#metrics ? formatMs(this.#metrics.felix) : "none";
     element("status-hash").textContent = stateHash(session.replica.confirmed);
+    element("status-people").textContent = this.#people().length.toLocaleString();
 
     const samples = edit.latest(60);
     const max = Math.max(1, ...samples);
@@ -256,41 +302,133 @@ export class Chrome {
       .setAttribute("points", points.join(" "));
   }
 
-  #renderAvatars(): void {
-    const container = element("avatars");
-    const people = [
-      ...this.#peers.map((peer) => ({
-        name: peer.name,
-        color: peer.color,
-        idle: peer.idle,
-        you: false,
-      })),
-      { name: this.#name, color: PEER_COLORS[this.#ownColor]!, idle: false, you: true },
-    ];
-    const shown = people.length > MAX_AVATARS ? people.slice(0, MAX_AVATARS - 1) : people;
-    const nodes: HTMLElement[] = shown.map((person) => {
-      const avatar = document.createElement("span");
-      avatar.className = person.idle ? "avatar idle" : "avatar";
-      avatar.style.setProperty("--peer", person.color);
-      avatar.textContent = person.name.slice(0, 1).toUpperCase();
-      avatar.dataset.tip = person.you
-        ? `${person.name} (you)`
-        : person.idle
-          ? `${person.name} · idle`
-          : person.name;
-      return avatar;
-    });
-    if (people.length > shown.length) {
-      const more = document.createElement("span");
-      more.className = "avatar more";
-      more.textContent = `+${people.length - shown.length}`;
-      more.dataset.tip = people
-        .slice(shown.length)
-        .map((person) => person.name)
-        .join(", ");
-      nodes.push(more);
+  /**
+   * Everyone else's entries, grouped by person, oldest entry first. A person
+   * with two tabs, or a reloaded tab whose old entry has not expired, has
+   * more than one.
+   */
+  #others(): RoomMember[][] {
+    const byPerson = new Map<bigint, RoomMember[]>();
+    for (const member of this.#members) {
+      if (member.person === this.#person) continue;
+      byPerson.set(member.person, [...(byPerson.get(member.person) ?? []), member]);
     }
-    container.replaceChildren(...nodes);
+    return [...byPerson.values()];
+  }
+
+  #people(): Person[] {
+    const now = performance.now();
+    const others = this.#others().map((entries) => {
+      const newest = entries.at(-1)!;
+      const peers = entries.flatMap(
+        (entry) => this.#peers.find((peer) => peer.sid === entry.sid) ?? [],
+      );
+      const lastMove = Math.max(...peers.map((peer) => peer.lastMove));
+      return {
+        key: newest.person.toString(16),
+        name: newest.name,
+        color: PEER_COLORS[paletteIndex(newest.color)]!,
+        you: false,
+        status: peers.some((peer) => !peer.idle)
+          ? "Active"
+          : away(peers.length > 0 ? now - lastMove : null),
+      };
+    });
+    const you = {
+      key: "you",
+      name: this.#name,
+      color: PEER_COLORS[this.#ownColor]!,
+      you: true,
+      status: "You",
+    };
+    return [...others, you];
+  }
+
+  #renderPeople(): void {
+    const people = this.#people();
+    this.#renderAvatars(people);
+    element("people-title").textContent =
+      people.length === 1 ? "Just you here" : `${people.length} people here`;
+    const you = element("you-avatar");
+    you.style.setProperty("--peer", PEER_COLORS[this.#ownColor]!);
+    you.textContent = initial(this.#name);
+    const rows = people
+      .filter((person) => !person.you)
+      .map((person) => {
+        const row = document.createElement("li");
+        row.className = "person";
+        const avatar = document.createElement("span");
+        avatar.className = "avatar";
+        avatar.style.setProperty("--peer", person.color);
+        avatar.textContent = initial(person.name);
+        const name = document.createElement("span");
+        name.className = "person-name";
+        name.textContent = person.name;
+        const status = document.createElement("span");
+        status.className = "person-status";
+        status.dataset.active = String(person.status === "Active");
+        status.textContent = person.status;
+        row.append(avatar, name, status);
+        return row;
+      });
+    element("people-list").replaceChildren(...rows);
+  }
+
+  /**
+   * The avatar stack, updated in place so a newcomer pops in and someone who
+   * left shrinks away instead of the whole row redrawing.
+   */
+  #renderAvatars(people: Person[]): void {
+    const shown = people.length > MAX_AVATARS ? people.slice(0, MAX_AVATARS - 1) : people;
+    const entries = shown.map((person) => ({
+      key: person.key,
+      label: initial(person.name),
+      color: person.color,
+      dim: person.status !== "Active" && !person.you,
+      tip: person.you
+        ? `${person.name} (you)`
+        : person.status === "Active"
+          ? person.name
+          : `${person.name} · ${person.status}`,
+    }));
+    if (people.length > shown.length) {
+      const rest = people.slice(shown.length);
+      entries.push({
+        key: "more",
+        label: `+${rest.length}`,
+        color: "",
+        dim: false,
+        tip: rest.map((person) => person.name).join(", "),
+      });
+    }
+    const container = element("avatars");
+    let previous: HTMLElement | null = null;
+    for (const entry of entries) {
+      let avatar = this.#avatarNodes.get(entry.key);
+      if (!avatar) {
+        avatar = document.createElement("span");
+        avatar.className = entry.key === "more" ? "avatar more" : "avatar";
+        this.#avatarNodes.set(entry.key, avatar);
+      }
+      avatar.classList.toggle("idle", entry.dim);
+      avatar.style.setProperty("--peer", entry.color);
+      avatar.textContent = entry.label;
+      avatar.dataset.tip = entry.tip;
+      const next: ChildNode | null = previous ? previous.nextSibling : container.firstChild;
+      if (avatar !== next) container.insertBefore(avatar, next);
+      previous = avatar;
+    }
+    const keep = new Set(entries.map((entry) => entry.key));
+    for (const [key, avatar] of this.#avatarNodes) {
+      if (keep.has(key)) continue;
+      this.#avatarNodes.delete(key);
+      avatar.classList.add("leaving");
+      setTimeout(() => avatar.remove(), AVATAR_LEAVE_MS);
+    }
+    element("avatars").setAttribute(
+      "aria-label",
+      people.length === 1 ? "Just you here" : `${people.length} people here`,
+    );
   }
 
   #wireToolbar(): void {
@@ -327,6 +465,12 @@ export class Chrome {
       setOpen(false);
       this.#showShortcuts();
     });
+    const cursors = element("cursors-item");
+    cursors.addEventListener("click", () => {
+      const shown = cursors.getAttribute("aria-checked") !== "true";
+      cursors.setAttribute("aria-checked", String(shown));
+      element("cursors").hidden = !shown;
+    });
     element("hide-ui-item").addEventListener("click", () => {
       setOpen(false);
       this.#toggleUi();
@@ -345,23 +489,37 @@ export class Chrome {
   }
 
   #wireStatus(): void {
-    const chip = element("chip");
-    const status = element("status");
     let poll = 0;
-    const setOpen = (open: boolean) => {
-      status.hidden = !open;
-      chip.setAttribute("aria-expanded", String(open));
+    popover(element("chip"), element("status"), (open) => {
       clearInterval(poll);
       if (open) {
         void this.#fetchMetrics();
         poll = window.setInterval(() => void this.#fetchMetrics(), 1000);
         this.#renderStatus();
       }
-    };
-    chip.addEventListener("click", () => setOpen(Boolean(status.hidden)));
-    document.addEventListener("pointerdown", (event) => {
-      const target = event.target as Node;
-      if (!status.contains(target) && !chip.contains(target)) setOpen(false);
+    });
+  }
+
+  #wirePeople(): void {
+    const input = element<HTMLInputElement>("you-name");
+    input.maxLength = MAX_NAME;
+    popover(element("avatars"), element("people"), (open) => {
+      if (open) input.value = this.#name;
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") input.blur();
+      if (event.key === "Escape") {
+        input.value = this.#name;
+        input.blur();
+      }
+    });
+    input.addEventListener("change", () => {
+      const name = input.value.trim().slice(0, MAX_NAME);
+      input.value = name || this.#name;
+      if (!name || name === this.#name) return;
+      this.#name = name;
+      this.onRename(name);
+      this.#renderPeople();
     });
   }
 
@@ -411,7 +569,7 @@ export class Chrome {
       const target = (event.target as HTMLElement).closest<HTMLElement>("[data-tip]");
       if (target === current) return;
       hide();
-      if (!target || target.getAttribute("aria-expanded") === "true") return;
+      if (!target || target.closest('[aria-expanded="true"]')) return;
       current = target;
       // Moving between neighbouring buttons shows the next tip at once.
       const delay = performance.now() - lastHidden < 300 ? 0 : TOOLTIP_DELAY_MS;
@@ -465,6 +623,41 @@ export class Chrome {
     }
     this.onThemeChange();
   }
+}
+
+/** Open and close `panel` from `trigger`, closing it on any click outside both. */
+function popover(
+  trigger: HTMLElement,
+  panel: HTMLElement,
+  onToggle: (open: boolean) => void,
+): void {
+  const setOpen = (open: boolean) => {
+    panel.hidden = !open;
+    trigger.setAttribute("aria-expanded", String(open));
+    onToggle(open);
+  };
+  trigger.addEventListener("click", () => setOpen(Boolean(panel.hidden)));
+  document.addEventListener("pointerdown", (event) => {
+    const target = event.target as Node;
+    if (!panel.hidden && !panel.contains(target) && !trigger.contains(target)) setOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !panel.hidden && !(event.target instanceof HTMLInputElement)) {
+      setOpen(false);
+      trigger.focus();
+    }
+  });
+}
+
+function initial(name: string): string {
+  return [...name][0]?.toUpperCase() ?? "?";
+}
+
+/** How long someone has been away, in the coarse words a person would use. */
+function away(ms: number | null): string {
+  if (ms === null || ms < 60_000) return "Away";
+  if (ms < 3_600_000) return `Away · ${Math.floor(ms / 60_000)}m`;
+  return `Away · ${Math.floor(ms / 3_600_000)}h`;
 }
 
 function formatMs(ms: number): string {
