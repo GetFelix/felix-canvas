@@ -24,13 +24,16 @@ const snapshots = `canvas.snap.${room}`;
 const snapshotKey = "latest";
 const group = "snapshotter";
 
-const client = await felix.Client.connect(
-  env("CANVAS_FELIX_BROKERS", "127.0.0.1:5000").split(","),
-  tenant,
-  token,
-  env("CANVAS_FELIX_SERVER_NAME", "localhost"),
-  process.env.CANVAS_FELIX_CA_FILE || undefined,
-);
+const brokers = env("CANVAS_FELIX_BROKERS", "127.0.0.1:5000").split(",");
+const connect = () =>
+  felix.Client.connect(
+    brokers,
+    tenant,
+    token,
+    env("CANVAS_FELIX_SERVER_NAME", "localhost"),
+    process.env.CANVAS_FELIX_CA_FILE || undefined,
+  );
+let client = await connect();
 
 const log: RoomLog = {
   poll: (max, waitMs) => client.groupPoll(tenant, namespace, ops, 0, group, max, waitMs),
@@ -51,14 +54,17 @@ createServer((_request, response) => {
   console.log(`snapshotter for ${room} serving its position on ${host}:${port}`),
 );
 
+const waitOutClaims = () =>
+  new Promise((resolve) =>
+    setTimeout(resolve, Number(env("CANVAS_SNAPSHOTTER_CLAIM_WAIT_MS", "30000"))),
+  );
+
 await snapshotter.start();
 // Records a previous run claimed and never acknowledged stay claimed until
 // the group's visibility timeout lapses, and newer records would be handed out
 // ahead of them. Waiting it out first means they come back before anything
 // newer, so the fold stays in offset order.
-await new Promise((resolve) =>
-  setTimeout(resolve, Number(env("CANVAS_SNAPSHOTTER_CLAIM_WAIT_MS", "30000"))),
-);
+await waitOutClaims();
 
 for (;;) {
   try {
@@ -68,5 +74,17 @@ for (;;) {
     // carrying on loses nothing.
     console.error(`snapshotter: ${String(err)}`);
     await new Promise((resolve) => setTimeout(resolve, 1000));
+    // The client keeps dialling a broker it lost rather than moving on, so
+    // connect again from the next address. A poll answer lost with the
+    // connection left records claimed, so wait those out as at startup.
+    if (err instanceof felix.ConnectionError) {
+      brokers.push(brokers.shift()!);
+      try {
+        client = await connect();
+        await waitOutClaims();
+      } catch (retry) {
+        console.error(`snapshotter: ${String(retry)}`);
+      }
+    }
   }
 }

@@ -91,6 +91,10 @@ export class Session {
   readonly members = new Members();
   /** Publish to own delivery on the op log. */
   readonly editTrips = new RoundTrips();
+  /** Publish to Felix's acknowledgement on the op log. */
+  readonly ackTrips = new RoundTrips();
+  /** Another session's edit, from when it was made to the frame that drew it here, by the wall clock. */
+  readonly peerEditTrips = new RoundTrips();
   /** The same on the presence stream. */
   readonly cursorTrips = new RoundTrips();
   room: { namespace: string; room: string } | null = null;
@@ -143,6 +147,8 @@ export class Session {
   #presenceSent = { n: 0, at: 0 };
   #member: Member | null = null;
   #refresh: { worker: Worker; everyMs: number } | null = null;
+  /** When each live edit from another session applied since the last frame was made. */
+  #undrawn: number[] = [];
 
   constructor(
     url: string,
@@ -152,11 +158,28 @@ export class Session {
     this.#url = url;
     this.#join = join;
     this.#open = open;
+    this.replica.onApply = (op) => {
+      if (
+        op.sid !== this.sid &&
+        op.at !== undefined &&
+        this.caughtUp &&
+        this.#undrawn.length < 600
+      ) {
+        this.#undrawn.push(op.at);
+      }
+    };
   }
 
   /** Whether the session is waiting for the snapshot to join from. */
   get loading(): boolean {
     return this.#awaitingSnapshot;
+  }
+
+  /** Note that a frame showing the replica as it is now has been drawn. */
+  drawn(): void {
+    const now = Date.now();
+    for (const at of this.#undrawn) this.peerEditTrips.add(now - at);
+    this.#undrawn = [];
   }
 
   start(): void {
@@ -293,6 +316,11 @@ export class Session {
           this.#resubscribing = false;
           this.#subscribeOps(client);
         }, wait);
+      } else if (stream === "presence") {
+        // Cursors are worth nothing late, so only live ones are asked for again.
+        setTimeout(() => {
+          if (this.#client === client) client.subscribe("presence", "live");
+        }, 1000);
       } else if (error.code === "signed_out" || error.code === "forbidden") {
         this.refused = error.code;
         this.onStatusChange();
@@ -385,10 +413,14 @@ export class Session {
 
   #send(edit: PendingEdit): void {
     const client = this.#client!;
-    edit.sentAt = performance.now();
+    const sentAt = performance.now();
+    edit.sentAt = sentAt;
     // A failed publish may or may not have landed. Reconnecting resends every
     // pending op in order, which keeps the seq-order rule the dedupe needs.
-    client.publish("ops", encodeOp(edit.op)).catch(() => client.close());
+    client.publish("ops", encodeOp(edit.op)).then(
+      () => this.ackTrips.add(performance.now() - sentAt),
+      () => client.close(),
+    );
   }
 
   async #reserveSeqs(): Promise<void> {

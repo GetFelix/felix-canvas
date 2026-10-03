@@ -42,6 +42,8 @@ export class Replica {
   readonly #ahead = new Map<number, Buffered>();
   readonly #pending: PendingEdit[] = [];
   #view: Doc | undefined;
+  /** Called with each op as it enters the fold. */
+  onApply: (op: Op) => void = () => {};
 
   constructor(sid: bigint) {
     this.sid = sid;
@@ -140,6 +142,7 @@ export class Replica {
       }
       this.#confirmed = apply(this.#confirmed, op, at);
       this.#view = undefined;
+      this.onApply(op);
       if (op.sid === this.sid) {
         const mine = this.#pending.findIndex((edit) => edit.op.seq === op.seq);
         if (mine >= 0) confirmed.push(...this.#pending.splice(mine, 1));

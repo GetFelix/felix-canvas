@@ -22,7 +22,7 @@
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
 caches. You run it yourself: Felix, a stateless gateway, a snapshotter and the web app.
 
-**Status: M0 to M6 done.** Two browsers draw rectangles, ellipses, lines and pen
+**Status: M0 to M7 done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
 A snapshotter keeps the room's folded state in the Felix cache, so a browser
@@ -33,7 +33,10 @@ session can reach only the room it opened, enforced by Felix itself.
 A tab throttled to 100 kbit/s falls behind alone, says so, and catches up to
 the same canvas while everyone else stays live. History mode scrubs a room
 back and forth through every change it has had, straight from the log, and
-returns to live without missing anything.
+returns to live without missing anything. Killing the Felix broker that holds
+a room in the middle of editing costs a moment of "Reconnecting" and no
+acknowledged change, and 500 viewers on a room leave the editor's save time
+within 15% of what it is alone.
 Packaged images for self-hosting come in M8; until then, see
 [Running locally](#running-locally).
 
@@ -111,7 +114,7 @@ the milestone plan.
 | 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | Done |
 | 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | Done |
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | Done |
-| 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
+| 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | Done |
 | 8 | Images, a compose install, your own IdP, a Helm chart | Anyone can self-host it | |
 | 9 | Rich text in shapes, merged when two people type at once | A CRDT rides the same log: snapshots, rejoin and replay still work | |
 
@@ -226,15 +229,65 @@ in CI against the same images:
   anything of the studio's. The test talks to the broker directly, and fails if
   the gateway stops narrowing.
 
+M7 checks that the room survives a broker and a crowd. What it proves:
+
+- `dev/up.sh --cluster` starts three Felix brokers that replicate every
+  room, with a majority acknowledging each change. In CI, two browsers edit
+  while a third watches history, and the broker that owns the room's log is
+  killed. Editing resumes on another broker; both editors end with the same
+  state hash, which is also the fold of the log read back from the start;
+  every edit either browser saw acknowledged is in that log; and the history
+  view, the snapshotter and a browser that joins afterwards all agree.
+- Edits that were in flight when the broker died are sent again with the same
+  `(sid, seq)`. A typical run sends about 400 to 700 edits, and a few hundred
+  of them land twice; the fold drops every repeat.
+- With 500 viewers subscribed to the room, the editing browser's
+  publish-to-acknowledgement median stays within 15% of the one-viewer case.
+
+### Performance
+
+Measured on a 4-core GitHub Codespace (16 GB) on 2026-10-03, with Felix
+0.6.0-preview from the published images, the gateway as a release build,
+headless Chromium, the snapshotter and the page server all on that one host.
+That host is shared, so these are what the design looks like on a laptop-class
+machine, not Felix's ceiling. The commands are in
+[development.md](docs/development.md#measuring-the-performance-targets).
+
+| Path | Target | Codespace, one host |
+|---|---|---|
+| Local echo, input to own pixel | < 16 ms | p50 0.5 ms, p99 14.7 ms. Headless Chromium draws without waiting for the display; a 60 Hz screen adds up to one frame |
+| Edit visible to another client | < 50 ms p50, < 150 ms p99 | p50 7.0 ms, p99 21.0 ms |
+| Cursor visible to another client | < 40 ms p50 | p50 8.1 ms |
+| Join a 10,000-change room | < 500 ms to first correct frame | 116 ms |
+| Fanout, 1 to 500 viewers | Publish p50 within 15% | 13.7 ms with 1, 15.2 ms with 500: within 10.9%. Each of the 499 extra viewers received all 900 edits, none dropped |
+| Snapshot lag | < 1,000 changes behind | p50 253, max 498, while a writer adds 300 changes a second |
+| Owning broker killed | Editing resumes, nothing acknowledged is lost | 5 of 5 runs on the three-broker dev stack: every acknowledged edit kept, all editors on one state hash. The longest wait between acknowledged edits was 5.7 to 12.8 s, median 6.0 s, with the dev stack's 3 s liveness window; 130 to 400 edits a run landed twice and were absorbed |
+
+The fanout run alternates 1 viewer and 500 three times, 300 edits each, one
+every 20 ms. Most of the 13 ms publish time is the broker writing each change
+to disk before it acknowledges, on the Codespace's disk. The 499 viewers share
+one Felix client and one connection, which is how `felix-loadgen` holds them
+too.
+
+Still to run on dedicated hardware, with Felix on its own machines and the
+browsers elsewhere in the same region:
+
+| Path | Why it needs that run |
+|---|---|
+| Fanout, 1 to 500 viewers | The viewers should be separate clients on their own connections, from more than one host, so the broker's fanout is measured rather than this host's CPU |
+| Edit and cursor visible to another client | Over a real network hop between browser, gateway and broker |
+| Local echo | In a headed browser on a real display |
+| Owning broker killed | With Felix's default liveness settings and brokers on separate machines |
+
 ## Repository layout
 
 | Path | What |
 |---|---|
-| `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes |
+| `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes. `examples/viewers.rs` holds the viewers for the fanout measurement |
 | `model/` | The op schema, its MessagePack encoding, the fold, the snapshot format and the state hash, shared by the browser and the snapshotter |
 | `snapshotter/` | Node service: reads a room's log through a consumer group with the `felix-client` npm package and keeps its snapshot in the cache |
 | `web/` | The browser client: Canvas2D renderer, tools, the op pipeline and join path, and the Playwright tests |
-| `dev/` | Felix for local runs and CI: Docker Compose over the published images, a stand-in IdP, and a seed script |
+| `dev/` | Felix for local runs and CI: Docker Compose over the published images with one broker or three, a stand-in IdP, and a seed script |
 | `docs/design.md` | The design: data model, editing and join rules, failure modes, targets |
 | `docs/protocol.md` | The browser to gateway protocol |
 | `docs/ux.md` | The UX and visual design brief the interface is built from |

@@ -13,7 +13,7 @@ import { assignColor } from "./members.js";
 import { Peers, ownName, ownPersonId, saveName } from "./peers.js";
 import { render, type Palette } from "./render.js";
 import { Scrubber } from "./scrubber.js";
-import { Session } from "./session.js";
+import { RoundTrips, Session } from "./session.js";
 import { readShape, type Shape } from "./shapes.js";
 
 /** Idle sessions still announce themselves this often, so peers know they are here. */
@@ -93,6 +93,14 @@ const presence = new Coalescer(PRESENCE_GAP_MS, HEARTBEAT_MS);
 let joinStartedAt = 0;
 /** Milliseconds from starting to join until the first correct frame was drawn. */
 let firstFrameMs: number | null = null;
+/** Input to the frame that shows its effect, in milliseconds. */
+const echoTrips = new RoundTrips();
+/** When the newest input not yet shown reached the page. */
+let inputAt: number | null = null;
+let echoFrom: number | null = null;
+for (const type of ["keydown", "pointerdown", "pointermove"]) {
+  addEventListener(type, () => (inputAt = performance.now()), { capture: true, passive: true });
+}
 
 function readPalette(): Palette {
   const style = getComputedStyle(document.documentElement);
@@ -130,6 +138,8 @@ function membersChanged(): void {
 }
 session.onMembersChange = membersChanged;
 editor.onChange = () => {
+  echoFrom ??= inputAt;
+  inputAt = null;
   dirty = true;
   presence.mark();
 };
@@ -188,6 +198,11 @@ function frame(now: number): void {
     });
     dirty = false;
     if (firstFrameMs === null && session.hasFrame) firstFrameMs = now - joinStartedAt;
+    session.drawn();
+    if (echoFrom !== null) {
+      echoTrips.add(performance.now() - echoFrom);
+      echoFrom = null;
+    }
   }
   if (presence.take(now)) {
     session.publishPresence({
@@ -222,6 +237,10 @@ Object.assign(window, {
     snapshotOffset: () => session.snapshotOffset,
     fellBehind: () => session.fellBehind,
     saveTimes: (count: number) => session.editTrips.latest(count),
+    ackTimes: (count: number) => session.ackTrips.latest(count),
+    echoTimes: (count: number) => echoTrips.latest(count),
+    peerEditTimes: (count: number) => session.peerEditTrips.latest(count),
+    cursorTimes: (count: number) => session.cursorTrips.latest(count),
     history: {
       ready: () => scrubber.ready,
       position: () => scrubber.position,

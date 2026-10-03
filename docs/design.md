@@ -831,6 +831,43 @@ sender has applied, and a viewer that is still short of a peer's count two
 seconds later treats it as a drop. Presence is sent at least every 3 seconds,
 so a silent tail loss is found within a few seconds.
 
+### Losing the owning broker
+
+Each room's op log, presence stream and caches are replicated to three brokers,
+and the op log and caches use `Quorum` consistency, so an acknowledgement means
+two of the three hold the change. When the broker that owns the room stops,
+the control plane promotes a replica that holds every acknowledged record.
+
+Nothing in the canvas knows which broker that is. The gateway gives each
+session's Felix client every broker's address, starting each session at a
+different one, and the client follows the room to its new owner:
+
+- A publish that was in flight fails or times out. The browser cannot tell
+  whether it landed, so it closes its gateway connection, reconnects, and sends
+  every unacknowledged edit again in `seq` order. One that had landed lands a
+  second time and the fold's `(sid, seq)` dedupe drops it.
+- The op subscription follows the log to its new owner from the next offset.
+  When it cannot, it ends, and the browser subscribes again from its last
+  applied offset plus one, exactly as after a gap.
+- Cursors are at most once, so the browser asks for the live presence stream
+  again and carries on.
+- The status chip shows "Reconnecting" while the edits wait.
+- The snapshotter connects again from the next broker address and waits out
+  the group's visibility timeout before it reads, as it does at startup, so
+  records a lost poll answer left claimed come back first.
+
+The end-to-end test `web/e2e/failover.e2e.ts` runs this against the
+three-broker stack in `dev/`: two browsers nudge shapes every 25 ms while a
+third watches the room's history, and the broker that owns the room's op log
+is killed. Both editors end with the same state hash, which is also the fold
+of the log read back from offset 0; every edit either browser saw acknowledged
+is in that log; the history view reaches the same state; the snapshotter keeps
+folding; and a browser that joins afterwards matches. The control plane in the
+dev stack expires a silent broker after 3 seconds, and the longest wait
+between acknowledged edits in the test is that window plus the time to notice
+the dead connection: about 6 seconds on a 4-core Codespace. Felix's defaults, a 15 second expiry and a 6 second idle
+timeout, would stretch it to about 20 seconds.
+
 ### The slow-client lane
 
 The Sync panel has a switch that throttles its own tab to 100 kbit/s. The
@@ -868,11 +905,17 @@ Set by human perception, not by Felix's ceilings.
 | Load a 10,000-change history, half of it text | < 0.5 ms per change | End-to-end history test |
 | Seek in that history | < 50 ms, slowest seek | Same test, 24 stops back and forth |
 | Lay out one 2,000-character body | < 4 ms | Unit benchmark in the browser |
-| Fanout degradation, 1 → 500 viewers | Publish p50 within 15% | `felix-loadgen` for the subscriber side |
+| Fanout degradation, 1 → 500 viewers | Publish p50 within 15% | Felix subscriptions for the viewers, as `felix-loadgen` makes them |
 | Snapshot lag | < 1,000 ops behind the tail | Group cursor offset versus stream tail |
 
-Use `felix-loadgen` to manufacture the 500 viewers: 500 browser tabs are not a
-measurable population. Real browsers carry the human-facing paths.
+Manufacture the 500 viewers as Felix subscriptions, the way `felix-loadgen`
+does: 500 browser tabs are not a measurable population. Real browsers carry the
+human-facing paths. `felix-loadgen` itself does not fit, because its pubsub
+scenario always publishes its own records at full speed, so
+`gateway/examples/viewers.rs` holds the subscriptions instead while one real
+browser edits. The README records each measurement and the machine it came
+from; [development.md](development.md#measuring-the-performance-targets)
+describes how each is timed.
 
 **Budget the hop, then check it.** Of the 50 ms edit-visible target, Felix's own
 share is under a millisecond in-region. The rest is browser input latency, the
