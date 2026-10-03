@@ -934,8 +934,8 @@ does: 500 browser tabs are not a measurable population. Real browsers carry the
 human-facing paths. `felix-loadgen` itself does not fit, because its pubsub
 scenario always publishes its own records at full speed, so
 `gateway/examples/viewers.rs` holds the subscriptions instead while one real
-browser edits. The README records each measurement and the machine it came
-from; [development.md](development.md#measuring-the-performance-targets)
+browser edits. [performance.md](performance.md) records each measurement and
+the machine it came from; [development.md](development.md#measuring-the-performance-targets)
 describes how each is timed.
 
 **Budget the hop, then check it.** Of the 50 ms edit-visible target, Felix's own
