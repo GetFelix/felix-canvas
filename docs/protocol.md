@@ -402,7 +402,7 @@ offset, and ignores a patch to a shape that does not exist, so a delete is final
 |---|---|---|
 | `type` | all | `rect`, `ellipse`, `line`, `stroke` or `text`. A create with any other type is ignored. Never changes |
 | `x`, `y` | all | The top-left corner, or a line's start, in canvas units |
-| `w`, `h` | all | Size; for a line, the offset from start to end, which may be negative |
+| `w`, `h` | all | Size; for a line, the offset from start to end, which may be negative. A `text` shape's height follows its text, so its `h` is unused, and a `w` of 0 makes it grow with its longest line |
 | `z` | all | A fractional-index key: shapes stack in key order, then by id. A value that is not a key is ignored |
 | `points` | `stroke` | Pairs of coordinates relative to `x, y`. Never changes once created |
 

@@ -20,6 +20,16 @@
   --pressed: hsl(220, 14%, 91%);
   --handle: #ffffff;
 
+  /* Text colours, by the names text stores. Ink is --ink and Muted is --text-muted. */
+  --text-coral: hsl(4, 72%, 50%);
+  --text-orange: hsl(26, 88%, 44%);
+  --text-amber: hsl(40, 92%, 36%);
+  --text-green: hsl(142, 58%, 32%);
+  --text-blue: hsl(222, 72%, 52%);
+  --text-violet: hsl(262, 58%, 54%);
+  --text-magenta: hsl(312, 58%, 44%);
+  --text-rose: hsl(344, 70%, 50%);
+
   --shadow-island: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.08);
   --shadow-menu: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.1);
   --island-border: transparent;
@@ -57,6 +67,14 @@
     --hover: hsl(222, 10%, 18%);
     --pressed: hsl(222, 10%, 22%);
     --handle: hsl(222, 12%, 12%);
+    --text-coral: hsl(4, 82%, 68%);
+    --text-orange: hsl(26, 92%, 62%);
+    --text-amber: hsl(42, 95%, 58%);
+    --text-green: hsl(142, 50%, 55%);
+    --text-blue: hsl(222, 84%, 72%);
+    --text-violet: hsl(262, 72%, 75%);
+    --text-magenta: hsl(312, 68%, 70%);
+    --text-rose: hsl(344, 78%, 70%);
     --shadow-island: 0 8px 24px rgb(0 0 0 / 0.45);
     --shadow-menu: 0 8px 28px rgb(0 0 0 / 0.5);
     --island-border: var(--border);
@@ -83,6 +101,14 @@
   --hover: hsl(222, 10%, 18%);
   --pressed: hsl(222, 10%, 22%);
   --handle: hsl(222, 12%, 12%);
+  --text-coral: hsl(4, 82%, 68%);
+  --text-orange: hsl(26, 92%, 62%);
+  --text-amber: hsl(42, 95%, 58%);
+  --text-green: hsl(142, 50%, 55%);
+  --text-blue: hsl(222, 84%, 72%);
+  --text-violet: hsl(262, 72%, 75%);
+  --text-magenta: hsl(312, 68%, 70%);
+  --text-rose: hsl(344, 78%, 70%);
   --shadow-island: 0 8px 24px rgb(0 0 0 / 0.45);
   --shadow-menu: 0 8px 28px rgb(0 0 0 / 0.5);
   --island-border: var(--border);
@@ -1087,6 +1113,140 @@ input.person-name:focus {
 }
 
 /* Cursors */
+
+/* Text being edited. Every rule here that changes where a line breaks or how
+   tall it is has a twin in src/textlayout.ts, which draws the same text on
+   the canvas; change both together. */
+
+.text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.text-editor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: auto;
+  cursor: text;
+}
+
+.text-editor.text-box {
+  display: flex;
+  align-items: center;
+}
+
+.text-editor.text-box .text-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.text-body {
+  margin: 0;
+  outline: none;
+  color: var(--ink);
+  font:
+    400 16px/1.4 "Inter Variable",
+    system-ui,
+    sans-serif;
+  font-feature-settings: normal;
+  font-kerning: normal;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--accent);
+}
+
+.text-shape .text-body {
+  min-width: 2px;
+}
+
+.text-body p,
+.text-body h1,
+.text-body h2,
+.text-body h3 {
+  margin: 0;
+}
+
+.text-body h1,
+.text-body h2,
+.text-body h3 {
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.text-body h1 {
+  font-size: 28px;
+}
+
+.text-body h2 {
+  font-size: 22px;
+}
+
+.text-body h3 {
+  font-size: 18px;
+}
+
+.text-body strong {
+  font-weight: 700;
+}
+
+.text-body :is(h1, h2, h3) strong {
+  font-weight: 800;
+}
+
+.text-body :is(u, a) {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 0.0625em;
+  text-underline-offset: 0.15em;
+  text-decoration-skip-ink: none;
+}
+
+.text-body :is(ul, ol) {
+  margin: 0;
+  padding: 0 0 0 24px;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+.text-body li::marker {
+  font:
+    400 16px "Inter Variable",
+    system-ui,
+    sans-serif;
+  color: var(--ink);
+}
+
+.text-body ul > li::marker {
+  content: "• ";
+}
+
+.text-body :is(ul, ol) ul > li::marker {
+  content: "◦ ";
+}
+
+.text-body :is(ul, ol) :is(ul, ol) ul > li::marker {
+  content: "▪ ";
+}
+
+.text-body ol > li::marker {
+  content: counter(list-item) ". ";
+}
+
+.text-body .placeholder::before {
+  content: "Type something";
+  position: absolute;
+  color: var(--text-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
 
 .cursors {
   position: absolute;

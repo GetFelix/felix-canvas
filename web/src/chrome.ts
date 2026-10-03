@@ -18,6 +18,7 @@ import {
   Slash,
   Square,
   Sun,
+  Type,
   X,
   createIcons,
 } from "lucide";
@@ -112,6 +113,7 @@ export class Chrome {
         Moon,
         MousePointer2,
         Pencil,
+        Type,
         Plus,
         Slash,
         Square,

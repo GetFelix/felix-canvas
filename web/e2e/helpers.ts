@@ -1,5 +1,6 @@
-import { encodeOp, randomSessionId, type Op } from "@felix-canvas/model";
+import { encodeOp, randomSessionId, textClientId, type Op } from "@felix-canvas/model";
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import * as Y from "yjs";
 
 interface Replica {
   hash(): string;
@@ -14,6 +15,18 @@ interface Replica {
   echoTimes(count: number): number[];
   peerEditTimes(count: number): number[];
   cursorTimes(count: number): number[];
+  textEchoTimes(count: number): number[];
+  /** The canvas's lines of a shape's text, or `null` if it has none. */
+  text(id: string): string[] | null;
+  /** The height of a shape's text as the canvas lays it out. */
+  textHeight(id: string): number | null;
+  /** The median time to lay out a shape's text, in milliseconds. */
+  layoutMs(id: string): number;
+  /** Open the editor on a shape's text. */
+  edit(id: string): void;
+  /** The shape whose text is open in the editor. */
+  editing(): string | null;
+  centre(x: number, y: number): void;
   history: {
     ready(): boolean;
     position(): number;
@@ -115,6 +128,22 @@ export async function settle(pages: Page[], timeout = 15_000): Promise<void> {
       { timeout },
     )
     .toBe(true);
+}
+
+/**
+ * A spot of canvas nothing else uses, so tests that click on empty canvas
+ * find it empty however often they run against one dev stack.
+ */
+export function freshSpot(): [number, number] {
+  return [
+    Math.round(20_000 + Math.random() * 1_000_000),
+    Math.round(20_000 + Math.random() * 1_000_000),
+  ];
+}
+
+/** Put world point `spot` at the centre of `page`'s canvas, at 100%. */
+export async function centre(page: Page, [x, y]: [number, number]): Promise<void> {
+  await page.evaluate((spot) => window.felixCanvas.centre(spot.x, spot.y), { x, y });
 }
 
 export async function hashes(pages: Page[]): Promise<string[]> {
@@ -237,4 +266,43 @@ export async function readLog(next: number): Promise<[number, Uint8Array][]> {
     socket.close();
   }
   return records;
+}
+
+/** Marks as `y-prosemirror` stores them. */
+export type Marks = Record<string, Record<string, string>>;
+/** A paragraph or heading as runs of text, or a list of items that each hold blocks. */
+export type BlockSpec =
+  | { block: "p" | "h"; level?: number; runs: [string, Marks?][] }
+  | { list: "ul" | "ol"; items: BlockSpec[][] };
+
+/** The update that writes `blocks` into an empty body, as the editor would. */
+export function bodyUpdate(blocks: BlockSpec[], sid = randomSessionId()): Uint8Array {
+  const doc = new Y.Doc();
+  doc.clientID = textClientId(sid);
+  const element = (spec: BlockSpec): Y.XmlElement => {
+    if ("list" in spec) {
+      const list = new Y.XmlElement(spec.list);
+      list.insert(
+        0,
+        spec.items.map((blocks) => {
+          const item = new Y.XmlElement("li");
+          item.insert(0, blocks.map(element));
+          return item;
+        }),
+      );
+      return list;
+    }
+    const block = new Y.XmlElement(spec.block);
+    if (spec.block === "h") block.setAttribute("level", spec.level as unknown as string);
+    const text = new Y.XmlText();
+    let at = 0;
+    for (const [run, marks = {}] of spec.runs) {
+      text.insert(at, run, marks);
+      at += run.length;
+    }
+    block.insert(0, [text]);
+    return block;
+  };
+  doc.getXmlFragment("body").insert(0, blocks.map(element));
+  return Y.encodeStateAsUpdateV2(doc);
 }

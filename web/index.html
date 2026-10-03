@@ -17,6 +17,7 @@
   <body>
     <main id="app">
       <canvas id="canvas" aria-label="Canvas"></canvas>
+      <div id="text-layer" class="text-layer"></div>
       <div id="cursors" class="cursors" aria-hidden="true"></div>
 
       <section id="joining" class="card joining">
@@ -52,7 +53,7 @@
         <h1>Start drawing</h1>
         <p>
           Everything you draw is saved and shared, so everyone here sees the same canvas. Press
-          <kbd>R</kbd> for a rectangle or <kbd>P</kbd> for the pen.
+          <kbd>R</kbd> for a rectangle, <kbd>T</kbd> for text or <kbd>P</kbd> for the pen.
         </p>
       </section>
 
@@ -248,6 +249,9 @@
         <button data-tool="pen" data-tip="Pen" data-key="P" aria-label="Pen">
           <i data-lucide="pencil"></i>
         </button>
+        <button data-tool="text" data-tip="Text" data-key="T" aria-label="Text">
+          <i data-lucide="type"></i>
+        </button>
       </nav>
 
       <div class="island history-island">
@@ -343,6 +347,14 @@
             <div>
               <dt>Pen</dt>
               <dd><kbd>P</kbd> or <kbd>D</kbd></dd>
+            </div>
+            <div>
+              <dt>Text</dt>
+              <dd><kbd>T</kbd></dd>
+            </div>
+            <div>
+              <dt>Edit text</dt>
+              <dd><kbd>↵</kbd> or double-click</dd>
             </div>
             <div>
               <dt>Back to select, deselect</dt>
