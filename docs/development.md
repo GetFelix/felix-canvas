@@ -48,6 +48,7 @@ and Node 24.
 
    ```bash
    export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem
+   export CANVAS_SCOPE_FILE=deploy/scope.toml
    cargo run -p felix-canvas-gateway
    ```
 
@@ -77,7 +78,7 @@ and Node 24.
    both windows should share. `?room=studio` opens the other room, which only
    `ana` may open.
 
-`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variable
+`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variables
 from step 2 exported, the integration tests run against the same stack:
 
 ```bash
@@ -152,7 +153,12 @@ see a refused room.
 The gateway, the snapshotter and the seed read the variables in the
 [configuration reference](self-hosting.md#configuration-reference). Their
 defaults match this stack, so a local run needs only the broker's certificate
-and the snapshotter's token from `dev/state/`.
+and the snapshotter's token from `dev/state/`, and the gateway the canvas's
+scope file, `CANVAS_SCOPE_FILE=deploy/scope.toml`, as in step 2 above.
+
+The scope file names the room's streams and caches; the seed creates the same
+ones, so a change to one is a change to both. The Playwright config starts the
+gateway with a copy that has a 6 second member TTL.
 
 Four settings there exist only because of Felix gaps:
 
@@ -235,7 +241,7 @@ this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
 | Job | Checks |
 |---|---|
 | Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
-| Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it, including the narrowing test: a token for one room is refused by the broker on another room's streams, counters, snapshot and member list |
+| Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it with `deploy/scope.toml`, including the narrowing test: a token for one room is refused by the broker on another room's streams, counters, snapshot and member list |
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
 | Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound, two people typing into one text box at once and ending with the same text, the canvas breaking a fixed set of bodies into the same lines as the editor, every control and shortcut of the text bar in both themes, pasted HTML keeping only the formats text can have, carets staying on their characters while others type, and an open editor keeping its caret and unsent typing through a rejoin from the snapshot. The history, cold-join and slow-connection tests have typing in their load. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 | Failover against a Felix cluster | Starts the three-broker stack and runs `web/e2e/failover.e2e.ts`: two browsers edit while a third watches the room's history, the broker that owns the room's op log is killed, and both editors end with the same state hash, which is also the fold of the log read back from offset 0. Every edit a browser saw acknowledged is in that log, the history view reaches the same state, the snapshotter carries on, and a browser that joins afterwards matches. It is a separate job, and not a required check, because it needs three brokers and stops one |
@@ -250,6 +256,7 @@ Playwright reuses a gateway that is already listening.
 ```bash
 dev/up.sh
 export CANVAS_FELIX_CA_FILE=$PWD/dev/state/broker-cert.pem
+export CANVAS_SCOPE_FILE=$PWD/deploy/scope.toml
 cargo build --release -p felix-canvas-gateway --bin felix-canvas-gateway --example viewers
 target/release/felix-canvas-gateway &
 

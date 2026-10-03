@@ -38,8 +38,8 @@ spec:
               value: {{ .Values.oidc.clientId | quote }}
             - name: CANVAS_OIDC_SCOPES
               value: {{ .Values.oidc.scopes | quote }}
-            - name: CANVAS_MEMBER_TTL_SECONDS
-              value: {{ $g.memberTtlSeconds | quote }}
+            - name: CANVAS_SCOPE_FILE
+              value: {{ ternary "/etc/felix-canvas/scope/scope.toml" "/usr/share/felix-canvas/scope.toml" (not (empty $g.scope)) | quote }}
             {{- with $g.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -60,8 +60,18 @@ spec:
             {{- toYaml $g.resources | nindent 12 }}
           volumeMounts:
             {{- include "canvas.caMount" . | nindent 12 }}
+            {{- if $g.scope }}
+            - name: scope
+              mountPath: /etc/felix-canvas/scope
+              readOnly: true
+            {{- end }}
       volumes:
         {{- include "canvas.caVolume" . | nindent 8 }}
+        {{- if $g.scope }}
+        - name: scope
+          configMap:
+            name: {{ $name }}-scope
+        {{- end }}
       {{- with $g.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -74,6 +84,19 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- if $g.scope }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-scope
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+data:
+  scope.toml: |
+    {{- $g.scope | nindent 4 }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service

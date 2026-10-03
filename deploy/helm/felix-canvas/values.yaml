@@ -51,7 +51,9 @@ gateway:
     digest: ""
   # Gateways hold no state, so any number serve any room.
   replicas: 2
-  memberTtlSeconds: 30
+  # A scope file to use instead of the image's (deploy/scope.toml), as TOML
+  # text. Empty keeps the image's. The member TTL is its members cache's ttl_s.
+  scope: ""
   service:
     type: ClusterIP
     port: 80

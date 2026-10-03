@@ -162,6 +162,13 @@ language boundary keeps it from growing canvas logic, and it can move into Felix
 later as a first-party browser bridge built on `felix-client`. It also fans out
 to many sessions without a JavaScript round trip per event.
 
+The gateway does not know any canvas names either. A scope file,
+`deploy/scope.toml`, says what a connection opens (a room) and which streams,
+caches and counters each room owns, under short aliases the browser uses.
+[protocol.md](protocol.md#the-scope-file) describes it. Everything that makes
+those resources a canvas lives in the browser and the snapshotter, so the same
+gateway can serve another application on Felix with a different scope file.
+
 The snapshotter is a separate process on purpose. Snapshot writes are throughput
 work and must never share a fate with an interactive socket, and running it as a
 consumer group gives it redelivery and dead-lettering for free.
@@ -182,6 +189,9 @@ segment names a room.
 | Op sequence per session | Counter | `canvas.seq.<room>` / `<session>` | Log-backed |
 | Who may open the room | Felix RBAC role | `role:room-<room>` | Control plane store |
 | Snapshot worker cursor | Consumer group | group `snapshotter` | Replicated with the shard |
+
+Through the gateway, the browser calls the room's resources by their aliases
+in the scope file: `ops`, `presence`, `snap`, `members` and `seq`.
 
 **Edits and presence are separate streams.** They have opposite requirements: an
 edit must never be dropped, a cursor position from 40 ms ago is worthless.
@@ -700,8 +710,8 @@ sequenceDiagram
 ```
 
 1. The browser signs in against the deployment's IdP and joins a room on the gateway with its ID token.
-2. The gateway exchanges the ID token at the control plane, **narrowing** the request to that room's resources: publish and subscribe on the op and presence streams, write on the sequence counters, read on the snapshot cache, and read and write on the member list.
-3. The gateway refuses the join unless the token it got back holds every one of those grants, then opens a Felix connection with it, one per session, and relays.
+2. The gateway exchanges the ID token at the control plane, **narrowing** the request to that room's resources with the actions the scope file allows on each: publish and subscribe on the op and presence streams, write on the sequence counters, read on the snapshot cache, and read and write on the member list.
+3. The gateway refuses the join unless the token it got back holds every one of those grants (a resource the scope file marks `optional` may be missing), then opens a Felix connection with it, one per session, and relays.
 4. The token refreshes before it expires. A refresh re-runs RBAC with the same narrowing, so a person removed from a room loses access within one token lifetime.
 
 The exchange can only narrow what RBAC already grants, never widen it, so a

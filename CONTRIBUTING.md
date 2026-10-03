@@ -9,7 +9,8 @@ This page is how code and pull requests should read.
   does not need yet. The one seam the design asks for is the gateway's
   transport trait.
 - Keep the gateway a relay. It never decodes or reorders ops and holds no canvas
-  state; anything that needs to understand an op belongs in `model/`.
+  state; anything that needs to understand an op belongs in `model/`. It holds
+  no canvas names either: those are in the scope file, `deploy/scope.toml`.
 - Write logic once. The fold, the op schema and their encoding live in `model/`
   and are imported by the browser and the snapshotter, never copied.
 - Format with `cargo fmt` and prettier. CI checks both.

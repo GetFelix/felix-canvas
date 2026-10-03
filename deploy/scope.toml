@@ -1,0 +1,40 @@
+# The canvas's scope file: what the gateway relays for one room.
+# docs/protocol.md describes the format. The gateway reads it from
+# CANVAS_SCOPE_FILE; the image carries it at /usr/share/felix-canvas/scope.toml.
+
+# The slow-link switch in the canvas's toolbar.
+allow_throttle = true
+
+[scope]
+field = "room"
+
+# The durable edit log.
+[[scope.streams]]
+alias = "ops"
+name = "canvas.ops.{scope}"
+actions = ["publish", "subscribe"]
+
+# Cursors and selections, in memory only.
+[[scope.streams]]
+alias = "presence"
+name = "canvas.presence.{scope}"
+actions = ["publish", "subscribe"]
+
+# The snapshotter's latest fold of the log, under key "latest".
+[[scope.caches]]
+alias = "snap"
+name = "canvas.snap.{scope}"
+actions = ["read"]
+
+# Who is in the room: one entry per session, gone unless refreshed.
+[[scope.caches]]
+alias = "members"
+name = "canvas.members.{scope}"
+actions = ["read", "write", "watch"]
+ttl_s = 30
+
+# Per-session op sequence numbers.
+[[scope.counters]]
+alias = "seq"
+name = "canvas.seq.{scope}"
+actions = ["add"]
