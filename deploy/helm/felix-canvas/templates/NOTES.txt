@@ -1,0 +1,15 @@
+Felix Canvas is starting. The seed Job writes the broker credential to the
+Secret {{ include "canvas.brokerSecret" . }}; on a first install, enable the
+Felix brokers with it:
+
+  helm upgrade <felix release> <felix chart> --reuse-values \
+    --set broker.enabled=true \
+    --set broker.credential.existingSecret={{ include "canvas.brokerSecret" . }}
+
+The gateway serves the canvas on the Service {{ include "canvas.fullname" . }}-gateway.
+{{- if .Values.devIdp.enabled }}
+
+The development sign-in page signs in anyone. Browsers must reach it at
+{{ .Values.devIdp.issuer }}, e.g. with
+  kubectl port-forward svc/{{ include "canvas.fullname" . }}-idp 9400:9400
+{{- end }}

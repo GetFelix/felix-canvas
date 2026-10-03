@@ -1,0 +1,7 @@
+.git
+**/node_modules
+target
+**/dist
+dev/state
+web/test-results
+web/playwright-report

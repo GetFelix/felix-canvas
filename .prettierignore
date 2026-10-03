@@ -6,3 +6,4 @@ package-lock.json
 *.yml
 test-results/
 playwright-report/
+deploy/helm/*/templates/

@@ -1,0 +1,181 @@
+# Felix Canvas, self-hosted: the Felix control plane and one broker, the
+# canvas gateway and snapshotter, and a one-shot seed that creates the
+# tenant, the rooms and the service tokens. Nothing else: no database.
+#
+# Settings live in .env next to this file; docs/self-hosting.md describes
+# each one. Upgrading means replacing this file and keeping .env.
+name: felix-canvas
+
+services:
+  controlplane:
+    image: ghcr.io/gabloe/felix-controlplane:${FELIX_VERSION:-0.6.0-preview}
+    environment:
+      # The metadata lives in the control plane's own Raft log, so there is
+      # no database beside Felix. One member is a group of one.
+      FELIX_CONTROLPLANE_STORAGE_BACKEND: raft
+      FELIX_RAFT_NODE_ID: "1"
+      FELIX_RAFT_PEERS: 1=controlplane:8444
+      FELIX_RAFT_BIND_ADDR: 0.0.0.0:8444
+      FELIX_RAFT_DATA_DIR: /var/lib/felix/raft
+      FELIX_RAFT_CLUSTER_ID: felix-canvas
+      FELIX_RAFT_PEER_TOKEN: ${FELIX_RAFT_PEER_TOKEN:?set FELIX_RAFT_PEER_TOKEN in .env}
+      FELIX_RAFT_INITIAL_CLUSTER_STATE: new
+      # The seed initializes the tenant through this listener. It has no
+      # published port, so only containers on this network reach it.
+      FELIX_BOOTSTRAP_ENABLED: "true"
+      FELIX_BOOTSTRAP_BIND_ADDR: 0.0.0.0:9095
+      FELIX_BOOTSTRAP_TOKEN: ${FELIX_BOOTSTRAP_TOKEN:?set FELIX_BOOTSTRAP_TOKEN in .env}
+      # The service-token provider is plain HTTP on this network.
+      FELIX_CONTROLPLANE_OIDC_ALLOW_INSECURE_HTTP: "true"
+      # Felix accepts only ES256 ID tokens unless told otherwise, and most
+      # providers sign with RS256.
+      FELIX_CONTROLPLANE_OIDC_ALLOWED_ALGORITHMS: ${FELIX_OIDC_ALGORITHMS:-ES256,RS256}
+      # The broker and the snapshotter read their tokens once at startup
+      # (felix#955), so the tokens must outlive the time between restarts.
+      FELIX_EXCHANGE_TOKEN_TTL_SECONDS: ${FELIX_TOKEN_TTL_SECONDS:-2592000}
+      RUST_LOG: ${FELIX_LOG:-info}
+    volumes:
+      - controlplane-data:/var/lib/felix
+    restart: unless-stopped
+
+  # Signs in the admin, broker and snapshotter service accounts for the seed,
+  # because Felix issues tokens only in exchange for an IdP token
+  # (felix#954). It signs in anyone, so it has no published port.
+  tokens:
+    image: ghcr.io/gabloe/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
+    command: ["dev/idp.mjs"]
+    environment:
+      IDP_ISSUER: http://tokens:9400
+    restart: unless-stopped
+
+  # The development sign-in page, for trying the canvas out. It signs in
+  # anyone who picks a name; remove "dev-idp" from COMPOSE_PROFILES once your
+  # own provider is configured.
+  idp:
+    profiles: [dev-idp]
+    image: ghcr.io/gabloe/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
+    command: ["dev/idp.mjs"]
+    environment:
+      IDP_ISSUER: ${CANVAS_OIDC_ISSUER}
+      IDP_USERS: ${CANVAS_DEV_USERS:-ana,ben}
+    ports:
+      - "127.0.0.1:9400:9400"
+    restart: unless-stopped
+
+  # Makes the broker a certificate on first start; see docs/self-hosting.md
+  # to bring your own. Also hands the state volume to the uid every other
+  # canvas and Felix container runs as.
+  certs:
+    image: ghcr.io/gabloe/felix-canvas:${CANVAS_VERSION:-0.1.0}
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -e
+        chown 65532:65532 /state
+        if [ ! -f /state/broker.crt ]; then
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 \
+            -subj /CN=broker -addext subjectAltName=DNS:broker,DNS:localhost \
+            -addext basicConstraints=critical,CA:FALSE -addext extendedKeyUsage=serverAuth \
+            -keyout /state/broker.key -out /state/broker.crt
+          chown 65532:65532 /state/broker.key /state/broker.crt
+        fi
+    volumes:
+      - state:/state
+
+  seed:
+    image: ghcr.io/gabloe/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
+    command: ["dev/seed.mjs"]
+    environment:
+      CANVAS_FELIX_BOOTSTRAP_TOKEN: ${FELIX_BOOTSTRAP_TOKEN}
+      CANVAS_SERVICE_IDP: http://tokens:9400
+      CANVAS_TENANT: ${CANVAS_TENANT:-canvas}
+      CANVAS_NAMESPACE: ${CANVAS_NAMESPACE:-default}
+      CANVAS_ROOMS: ${CANVAS_ROOMS}
+      CANVAS_OIDC_ISSUER: ${CANVAS_OIDC_ISSUER}
+      CANVAS_OIDC_JWKS_URL: ${CANVAS_OIDC_JWKS_URL:-}
+      CANVAS_OIDC_CLIENT_ID: ${CANVAS_OIDC_CLIENT_ID}
+      CANVAS_OIDC_AUDIENCE: ${CANVAS_OIDC_AUDIENCE:-}
+      CANVAS_OIDC_SUBJECT_CLAIM: ${CANVAS_OIDC_SUBJECT_CLAIM:-sub}
+      CANVAS_OIDC_GROUPS_CLAIM: ${CANVAS_OIDC_GROUPS_CLAIM:-}
+    volumes:
+      - state:/state
+    depends_on:
+      controlplane:
+        condition: service_healthy
+      tokens:
+        condition: service_started
+      certs:
+        condition: service_completed_successfully
+
+  broker:
+    image: ghcr.io/gabloe/felix-broker:${FELIX_VERSION:-0.6.0-preview}
+    environment:
+      FELIX_CONTROLPLANE_URL: http://controlplane:8443
+      FELIX_NODE_TOKEN_FILE: /state/node.token
+      FELIX_DURABLE_STORAGE_DIR: /var/lib/felix
+      # Each log a room writes to (its op stream, caches and group state)
+      # reserves a whole segment on disk up front, and the default is 256 MiB.
+      FELIX_DURABLE_SEGMENT_BYTES: ${FELIX_SEGMENT_BYTES:-16777216}
+      FELIX_TLS_CERT: /state/broker.crt
+      FELIX_TLS_KEY: /state/broker.key
+      FELIX_QUIC_LISTENERS: "1"
+      # Acknowledge after the write, so acks carry the record's log offset
+      # (felix#956).
+      FELIX_ACK_ON_COMMIT: "true"
+      # Small delivery batches: a canvas wants latency, not throughput.
+      FELIX_EVENT_BATCH_MAX_EVENTS: "8"
+      FELIX_EVENT_BATCH_MAX_DELAY_US: "100"
+      FELIX_FANOUT_BATCH: "8"
+      # The writer queue is per connection, with one entry per subscription
+      # for each change; at the default of 64 a connection holding many
+      # subscriptions loses changes.
+      FELIX_SUB_QUEUE_BOUND: "8192"
+      RUST_LOG: ${FELIX_LOG:-info}
+    volumes:
+      - felix-data:/var/lib/felix
+      - state:/state:ro
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  snapshotter:
+    image: ghcr.io/gabloe/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
+    environment: &felix-client
+      CANVAS_FELIX_BROKERS: broker:5000
+      CANVAS_FELIX_SERVER_NAME: broker
+      CANVAS_FELIX_CA_FILE: /state/broker.crt
+      CANVAS_FELIX_TOKEN_FILE: /state/snapshotter.token
+      CANVAS_TENANT: ${CANVAS_TENANT:-canvas}
+      CANVAS_NAMESPACE: ${CANVAS_NAMESPACE:-default}
+      CANVAS_ROOMS: ${CANVAS_ROOMS}
+    volumes:
+      - state:/state:ro
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  gateway:
+    image: ghcr.io/gabloe/felix-canvas:${CANVAS_VERSION:-0.1.0}
+    environment:
+      <<: *felix-client
+      CANVAS_FELIX_CONTROL_PLANE: http://controlplane:8443
+      CANVAS_OIDC_ISSUER: ${CANVAS_OIDC_ISSUER}
+      CANVAS_OIDC_CLIENT_ID: ${CANVAS_OIDC_CLIENT_ID}
+      CANVAS_OIDC_SCOPES: ${CANVAS_OIDC_SCOPES:-openid profile}
+      RUST_LOG: ${CANVAS_LOG:-info}
+    ports:
+      - "${CANVAS_BIND:-127.0.0.1}:${CANVAS_PORT:-8787}:8787"
+    volumes:
+      - state:/state:ro
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  controlplane-data:
+  felix-data:
+  state:
