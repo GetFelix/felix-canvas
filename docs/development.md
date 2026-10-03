@@ -43,12 +43,13 @@ a Codespace.
 `dev/up.sh` starts the broker and control plane from
 `ghcr.io/gabloe/felix-broker` and `felix-controlplane` at the version pinned in
 `dev/docker-compose.yml`, along with `dev/idp.mjs`, a stand-in OpenID Connect
-provider on `127.0.0.1:9400`. Its sign-in page signs in anyone who picks a name.
+provider on `127.0.0.1:9400`. Its sign-in page signs in anyone who picks a name,
+and the canvas shows that name capitalised: `ana` appears as Ana.
 The seed then creates two rooms and decides who may open them:
 
 | Room | Members |
 |---|---|
-| `lobby` | `ana`, `ben` |
+| `lobby` | `ana`, `ben`, `cleo` |
 | `studio` | `ana` |
 
 For each room it creates the two streams, the single-shard

@@ -1,5 +1,6 @@
-import { randomSessionId, type Presence } from "@felix-canvas/model";
+import type { Presence } from "@felix-canvas/model";
 
+import { claims, displayName } from "./auth.js";
 import type { Camera } from "./render.js";
 
 /**
@@ -23,28 +24,12 @@ export function paletteIndex(color: number): number {
   return ((Math.trunc(color) % size) + size) % size;
 }
 
-const NAMES = [
-  "Otter",
-  "Lynx",
-  "Heron",
-  "Fox",
-  "Puma",
-  "Wren",
-  "Orca",
-  "Ibex",
-  "Robin",
-  "Marten",
-  "Ocelot",
-  "Kestrel",
-];
-
 /** Gone if nothing arrives for this long; sessions send a heartbeat every few seconds. */
 const EXPIRE_MS = 10_000;
 const IDLE_MS = 10_000;
 /** Matches the cursor's opacity transition, so a leaving cursor fades out first. */
 const FADE_MS = 400;
 const NAME_KEY = "felix-canvas.name";
-const PERSON_KEY = "felix-canvas.person";
 /** Longer names are cut so a cursor's name pill stays small. */
 export const MAX_NAME = 24;
 /** The spring's angular frequency: settles in about 80 ms. */
@@ -52,39 +37,40 @@ const OMEGA = 50;
 /** Jumps longer than this on screen snap instead of sweeping across the canvas. */
 const SNAP_PX = 800;
 
-/** A name for this browser, kept between visits. */
-export function ownName(): string {
+/**
+ * The person id for the account `token` signs in: a 64-bit FNV-1a hash of
+ * its issuer and subject. Every tab signed in to one account is one person,
+ * so it keeps one colour and one entry in the people list.
+ */
+export function personId(token: string): bigint {
+  const { iss, sub } = claims(token) ?? {};
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(JSON.stringify([iss, sub]))) {
+    hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return hash;
+}
+
+/** The name this person chose here before, or else the one their account gives. */
+export function ownName(person: bigint, token: string): string {
   try {
-    const saved = localStorage.getItem(NAME_KEY)?.trim().slice(0, MAX_NAME);
+    const saved = localStorage.getItem(nameKey(person))?.trim().slice(0, MAX_NAME);
     if (saved) return saved;
-    const name = NAMES[Math.floor(Math.random() * NAMES.length)]!;
-    localStorage.setItem(NAME_KEY, name);
-    return name;
-  } catch {
-    return NAMES[0]!;
-  }
+  } catch {}
+  return displayName(token).slice(0, MAX_NAME) || "Guest";
 }
 
-/** This browser's person id, kept between visits so its colour stays the same. */
-export function ownPersonId(): bigint {
+/** Keep `name` for this person's next visits. */
+export function saveName(person: bigint, name: string): void {
   try {
-    const saved = localStorage.getItem(PERSON_KEY);
-    if (saved && /^[0-9a-f]{16}$/.test(saved)) return BigInt(`0x${saved}`);
-    const person = randomSessionId();
-    localStorage.setItem(PERSON_KEY, person.toString(16).padStart(16, "0"));
-    return person;
-  } catch {
-    return randomSessionId();
-  }
-}
-
-/** Keep `name` for this browser's next visits. */
-export function saveName(name: string): void {
-  try {
-    localStorage.setItem(NAME_KEY, name);
+    localStorage.setItem(nameKey(person), name);
   } catch {
     // Private windows may refuse storage; the name still applies to this visit.
   }
+}
+
+function nameKey(person: bigint): string {
+  return `${NAME_KEY}.${person.toString(16).padStart(16, "0")}`;
 }
 
 /** Another session in the room, as its presence messages describe it. */
