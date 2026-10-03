@@ -115,7 +115,7 @@ structure and one order.
 **What it costs.** The trade is real and runs in both directions:
 
 - **A browser cannot speak QUIC to Felix**, so this design pays for a gateway hop that anyone using `y-websocket` does not.
-- **Felix is not a database.** No object ACLs, no queries, no transactions, which is why room membership has no obvious home (see Authorization).
+- **Felix is not a database.** No object ACLs, no queries, no transactions, so room membership has to live in Felix RBAC rather than in a list of its own (see Authorization).
 - **One room is one shard is one owning broker**, the same single-owner constraint as a per-document server process. The difference is that failover is machinery Felix already has rather than something this application invents.
 - **Delivery is at-least-once**, so clients must dedupe; a CRDT stack gets idempotence from the merge function for free.
 - **Offline editing for weeks is out.** CRDTs win that outright, and this design does not compete for it.
@@ -175,10 +175,11 @@ segment names a room.
 |---|---|---|---|
 | Edit operations | Durable stream | `canvas.ops.<room>` | Log-backed, retained 30 days |
 | Cursors and presence | Ephemeral stream | `canvas.presence.<room>` | None, at-most-once by design |
-| Compacted snapshot | Cache key | `canvas.snap` / `<room>` | Log-backed, survives restart |
+| Compacted snapshot | Cache key | `canvas.snap.<room>` / `latest` | Log-backed, survives restart |
 | Snapshot's log position | Same cache value | stored inside the snapshot record | Written atomically with the snapshot |
-| Room membership | Cache keys with TTL | `canvas.presence` / `<room>:<session>` | TTL 30 s, refreshed by heartbeat |
-| Op sequence per session | Counter | `canvas.seq` / `<room>:<session>` | Log-backed |
+| Who is in the room now | Cache keys with TTL | `canvas.members.<room>` / `<session>` | TTL 30 s, refreshed by heartbeat |
+| Op sequence per session | Counter | `canvas.seq.<room>` / `<session>` | Log-backed |
+| Who may open the room | Felix RBAC role | `role:room-<room>` | Control plane store |
 | Snapshot worker cursor | Consumer group | group `snapshotter` | Replicated with the shard |
 
 **Edits and presence are separate streams.** They have opposite requirements: an
@@ -252,7 +253,7 @@ sequenceDiagram
     participant B as Broker
     C->>B: subscribe_from(ops, Latest)
     B-->>C: registered at tail L, buffering
-    C->>B: cache_get(canvas.snap, room)
+    C->>B: cache_get(canvas.snap.room, latest)
     B-->>C: snapshot built through offset N
     Note over C: draw the snapshot, drop buffered ops at or below N
     C->>B: subscribe_from(ops, N+1), only if N+1 < L
@@ -322,7 +323,7 @@ it occupies. So the presence stream is ephemeral, runs with
 - **Membership lives in the cache, not the stream.** One retained watch on the room's key prefix, instead of inferring who is present from a window of cursor traffic. Felix has no prefix `cache_get`, but a retained prefix watch is better: it starts with every current entry and then delivers each change, so the list stays live without polling.
 
 Membership uses TTL as a liveness mechanism: each session writes
-`canvas.presence/<room>:<session>` with a 30-second TTL and refreshes every 10
+key `<session>` of `canvas.members.<room>` with a 30-second TTL and refreshes every 10
 seconds. A client that vanishes without a goodbye stops refreshing and expires,
 which matters, because a browser closing a laptop lid sends no goodbye.
 
@@ -375,23 +376,55 @@ true.
 
 Per-room authorization works without any change to Felix, because the control
 plane's token exchange can narrow permissions and Felix's permission strings are
-wildcard-matched over resources like
-`stream:tenant/namespace/canvas.ops.room-42`.
+matched over resources like `stream:tenant/namespace/canvas.ops.room-42`.
 
-1. The browser signs in against the customer's IdP and lands on the gateway with an OIDC token.
-2. The gateway checks the app's own room membership rule.
-3. The gateway exchanges the OIDC token at the control plane, **narrowing** the request to that room's resources: publish and subscribe on the op stream, publish and subscribe on the presence stream, read on the snapshot cache.
-4. The gateway opens a Felix connection with that token and relays the session.
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant I as IdP
+    participant G as Gateway
+    participant C as Control plane
+    participant F as Broker
+    B->>I: sign in (authorization code + PKCE)
+    I-->>B: ID token
+    B->>G: join(room, ID token)
+    G->>C: exchange(ID token, narrowed to the room)
+    C-->>G: Felix token for that room, or 403
+    G->>F: connect with that token
+    G-->>B: hello, or forbidden
+```
 
-Step 3 is the property worth demonstrating. The exchange can only narrow what
-RBAC already grants, never widen it, so a bug in the gateway's membership check
-cannot produce a token with more reach than the signed-in user genuinely has.
+1. The browser signs in against the deployment's IdP and joins a room on the gateway with its ID token.
+2. The gateway exchanges the ID token at the control plane, **narrowing** the request to that room's resources: publish and subscribe on the op and presence streams, write on the sequence counters, read on the snapshot cache, and read and write on the member list.
+3. The gateway refuses the join unless the token it got back holds every one of those grants, then opens a Felix connection with it, one per session, and relays.
+4. The token refreshes before it expires. A refresh re-runs RBAC with the same narrowing, so a person removed from a room loses access within one token lifetime.
 
-**Where room membership itself lives** is an open choice. Felix has no
-object-level ACL store, and inventing one in cache keys would be building a
-database in a cache. The honest options are a small external store, or cache keys
-with the accepted limitation that membership edits are last-writer-wins and not
-transactional.
+The exchange can only narrow what RBAC already grants, never widen it, so a
+bug in the gateway cannot produce a token with more reach than the signed-in
+person genuinely has. And the narrowed token is what the broker checks: a
+session in one room cannot publish to, subscribe to or read another room even
+when the same person may open both. The gateway's integration tests prove that
+against the broker directly, with no gateway code in the path.
+
+**Every room has its own caches.** Felix authorizes a cache as a whole, never
+one key of it, so one shared snapshot cache keyed by room could not be
+narrowed to a room. Each room gets `canvas.seq.<room>`, `canvas.snap.<room>`
+and `canvas.members.<room>` beside its two streams.
+
+**Room membership is Felix RBAC.** Each room has a role, `role:room-<room>`,
+whose policies grant exactly the room's resources, and a member is anyone
+assigned that role: a person directly (by Felix principal, the SHA-256 of
+`issuer|subject`), or an IdP group (`group:<issuer>#<group>`), which lets a
+deployment manage rooms in its own directory. The two options weighed before
+were both worse. Cache keys would be a database built in a cache, with
+last-writer-wins membership edits. A small external store would be a second
+datastore. RBAC is already transactional, already consulted at every exchange
+and refresh, and needs no new process. The cost is that creating a room means
+creating its streams, caches and role, which the dev stack's seed does and an
+admin tool will do for a deployment.
+
+The gateway's own check is therefore short: a valid room name, and a token
+that covers the room. It holds no membership list and could not widen one.
 
 Per-shape or per-layer permissions do not work here. That is finer than the
 broker's unit of authorization, so it would have to be enforced in the gateway,
@@ -489,12 +522,12 @@ is the milestone order: everything that proves something about Felix lands by M4
 **What this project would contribute upstream to Felix:**
 
 1. **A first-party browser bridge.** The gateway built here generalizes: WebSocket or WebTransport ingress belongs in Felix itself, and is the largest single unlock for browser-facing products.
-2. **Object-level authorization.** Tenant RBAC plus token narrowing already scopes a session to one room; a place to keep the membership list itself would complete it.
+2. **Key-level cache authorization.** Narrowing stops at a whole cache, so every room needs its own caches. Grants over a key prefix would let rooms share them.
 3. **A TypeScript client.** Felix has Rust and Python clients and a Node addon; a browser-side one would let the gateway shrink to pure transport.
 4. **Snapshot-plus-offset as a primitive.** Every application that wants fast joins needs this pattern; a helper in `felix-client` would hand it to all of them.
 
 **Open questions**
 
-- [ ] Does room membership live in cache keys, or in a small external store?
+- [x] Does room membership live in cache keys, or in a small external store? Neither: in Felix RBAC, one role per room (see Authorization).
 - [ ] Is the scrubber bounded by retention, or does M5 also write periodic checkpoint snapshots to reach further back?
 - [ ] One gateway process per region, or one per room owner to keep the QUIC path shortest?

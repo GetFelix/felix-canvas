@@ -114,6 +114,8 @@ One status chip in the top-right island: an 8 px dot and a short label. It chang
 | Offline | Retries exhausted or browser offline | Grey dot, "Offline · 5 edits queued" | Bottom toast only if edits are queued, Figma-style |
 | Rejoining | Offset below retention, snapshot rejoin | Amber dot, "Rebuilding" | Canvas dims to 60% with a centred card: "Loading the canvas: 422 recent changes" |
 | Converged | After catching up or rejoining | Green check for 2 s, "Up to date" | Nothing |
+| No access | The signed-in person is not a member of the room | None: the chrome hides | The dimmed canvas behind one card with the cat mark and a lock: "You don't have access to this canvas", who to ask, "Switch account", "Go to the lobby", and "Signed in as Ana" |
+| Signed out | The sign-in ended or did not finish | None: the chrome hides | The same card: "Sign in to open this canvas" and a "Sign in" button |
 
 The transitions are where trust comes from: the user should see the gap named, the progress counted, and a clear "Up to date" at the end. Never show a spinner without a number.
 
@@ -143,7 +145,7 @@ Define these on `:root`, with dark overrides under `prefers-color-scheme: dark` 
 - **Density**: 32 px tool buttons, 4 px gaps, 1 px dividers between tool groups (select and hand | shapes | pen and text | image).
 - **Type**: Inter Variable, 13 px default UI size, scale 11 / 12 / 13 / 15 / 20. Weights 450 body, 550 labels, 650 room name. JetBrains Mono Variable at 11 to 12 px with `font-variant-numeric: tabular-nums` for every offset, latency and count.
 - **Dark mode** is a first-class theme, not an inversion: the canvas is darker than panels, shape default stroke flips to near-white, and user-chosen shape colours keep their hue but shift lightness so they hold contrast, as Linear does by generating both themes from the same LCH inputs.
-- **Brand**: the cat mark appears once, top left, at 24 px inside a 32 px button. Use it again only on the empty-room state and the loading card. Accent is reserved for selection, focus rings, the playhead, the Share button and your own follow border.
+- **Brand**: the cat mark appears once, top left, at 24 px inside a 32 px button. Use it again only on the empty-room state, the loading card and the no-access card. Accent is reserved for selection, focus rings, the playhead, the Share button, your own follow border, and the one action on a card that replaces the canvas.
 
 ## Motion
 

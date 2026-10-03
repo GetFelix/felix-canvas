@@ -5,11 +5,14 @@ import { defineConfig } from "vite";
 const gateway = process.env.CANVAS_GATEWAY ?? "127.0.0.1:8787";
 
 export default defineConfig({
+  // The page signs in with top-level await before it joins.
+  build: { target: "es2022" },
   server: {
     proxy: {
       "/ws": { target: `ws://${gateway}`, ws: true },
       "/metrics": { target: `http://${gateway}` },
       "/members": { target: `http://${gateway}` },
+      "/oidc": { target: `http://${gateway}` },
     },
   },
 });

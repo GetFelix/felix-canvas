@@ -22,13 +22,14 @@
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
 caches. You run it yourself: Felix, a stateless gateway, a snapshotter and the web app.
 
-**Status: M3 done.** Two browsers draw rectangles, ellipses, lines and pen
+**Status: M0 to M3, and M6, done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
 A snapshotter keeps the room's folded state in the Felix cache, so a browser
 joining a busy room draws it at once and reads only the recent changes.
 Everyone sees everyone else's cursor and name, and a member list that drops a
-closed laptop on its own.
+closed laptop on its own. People sign in with your identity provider, and each
+session can reach only the room it opened, enforced by Felix itself.
 Packaged images for self-hosting come in M8; until then, see
 [Running locally](#running-locally).
 
@@ -77,8 +78,9 @@ One room is one durable Felix stream plus a few cache keys.
 |---|---|---|
 | Edit operations | Durable stream | `canvas.ops.<room>` |
 | Cursors and presence | Ephemeral stream | `canvas.presence.<room>` |
-| Compacted snapshot + its log offset | Cache key | `canvas.snap/<room>` |
-| Room membership | Cache keys with TTL | `canvas.presence/<room>:<session>` |
+| Compacted snapshot + its log offset | Cache key | `canvas.snap.<room>/latest` |
+| Who is in the room now | Cache keys with TTL | `canvas.members.<room>/<session>` |
+| Who may open the room | Felix RBAC role | `role:room-<room>` |
 | Snapshot worker cursor | Consumer group | group `snapshotter` |
 
 Edits and presence are separate streams because they have opposite
@@ -104,7 +106,7 @@ the milestone plan.
 | 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real | Done |
 | 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | |
 | 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | |
-| 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | |
+| 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | Done |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
 | 8 | Images, a compose install, your own IdP, a Helm chart | Anyone can self-host it | |
 
@@ -135,13 +137,13 @@ M1 makes the log the document. What it proves, in CI against the same images:
   and to different fields, and that records delivered out of order and twice
   end in the same state as in-order delivery.
 - Each session's sequence numbers come from the Felix counter
-  `canvas.seq/<room>:<session>`, reserved through the gateway.
+  `canvas.seq.<room>/<session>`, reserved through the gateway.
 
 M2 makes joining cheap. What it proves, in CI against the same images:
 
 - The snapshotter reads the op log through the consumer group `snapshotter`,
   folds it with the same `model/` code as the browser, and writes the state and
-  its offset as one value to `canvas.snap/<room>`. It acknowledges records only
+  its offset as one value to `canvas.snap.<room>`. It acknowledges records only
   after the write, and unit tests show a crash between writes ends in the same
   snapshot.
 - A browser subscribes at the live tail before it reads the snapshot. A unit
@@ -160,7 +162,7 @@ the same images:
 - Two browsers see each other's cursors follow the pointer, with names, through
   the in-memory presence stream. Each browser sends at most one cursor message a
   frame, fire-and-forget; unit tests pin the pacing down.
-- Each session keeps a member entry, `canvas.presence/<room>:<session>`, with a
+- Each session keeps a member entry, `canvas.members.<room>/<session>`, with a
   30 second TTL that it refreshes every 10 seconds. Browsers read the list
   through one retained prefix watch. A tab that closes deletes its entry at
   once; a tab that crashes drops out of the other browser's list when the
@@ -168,6 +170,21 @@ the same images:
 - A person keeps their colour and shows once in the list across a reload,
   because colours come from an id the browser keeps, not from the session.
 - The gateway lists, watches and expires member entries against a real broker.
+
+M6 puts each session in one room and lets Felix keep it there. What it proves,
+in CI against the same images:
+
+- The browser signs in with the authorization code flow and PKCE, and joins a
+  room with its ID token. The gateway exchanges that token at the Felix control
+  plane for a Felix token narrowed to the room's two streams and three caches,
+  and opens that session's own Felix connection with it.
+- Who may open a room is a Felix RBAC role per room, so the control plane
+  refuses the exchange for anyone else. A refused browser shows "You don't have
+  access to this canvas" with a way to switch account.
+- A token for the lobby, held by someone who may also open the studio, is
+  refused by the broker when it publishes to, subscribes to, reads or writes
+  anything of the studio's. The test talks to the broker directly, and fails if
+  the gateway stops narrowing.
 
 ## Repository layout
 
@@ -191,8 +208,9 @@ You need Docker, Rust (the toolchain in `rust-toolchain.toml` installs itself),
 and Node 24.
 
 1. Start Felix. This pulls `ghcr.io/gabloe/felix-broker` and
-   `felix-controlplane` at `0.6.0-preview`, creates the `lobby` room's streams,
-   and writes the gateway's token and the broker's certificate to `dev/state/`:
+   `felix-controlplane` at `0.6.0-preview`, starts a stand-in sign-in service on
+   `127.0.0.1:9400`, creates the `lobby` and `studio` rooms, and writes the
+   snapshotter's token and the broker's certificate to `dev/state/`:
 
    ```bash
    dev/up.sh
@@ -201,10 +219,10 @@ and Node 24.
    Each run starts from an empty log. `docker compose -f dev/docker-compose.yml down -v`
    stops it.
 
-2. Start the gateway, which listens on `127.0.0.1:8787`:
+2. Start the gateway, which listens on `127.0.0.1:8787`. It has no token of its
+   own; each browser's sign-in is exchanged for one when it joins:
 
    ```bash
-   export CANVAS_FELIX_TOKEN="$(cat dev/state/gateway.token)"
    export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem
    cargo run -p felix-canvas-gateway
    ```
@@ -220,20 +238,21 @@ and Node 24.
    npm start -w @felix-canvas/snapshotter
    ```
 
-4. In another shell, start the page, which proxies `/ws` and `/metrics` to the
-   gateway:
+4. In another shell, start the page, which proxies the gateway's routes:
 
    ```bash
    npm run dev -w @felix-canvas/web
    ```
 
-5. Open <http://localhost:5173> in two windows and draw: <kbd>R</kbd> for a
-   rectangle, <kbd>O</kbd> an ellipse, <kbd>L</kbd> a line, <kbd>P</kbd> the pen,
-   <kbd>V</kbd> to select and drag, and <kbd>?</kbd> for every shortcut. The chip
-   at the top right shows how long your changes take to save; click it for the
-   sync details, including the canvas version both windows should share.
+5. Open <http://localhost:5173> in two windows, continue as `ana` or `ben`, and
+   draw: <kbd>R</kbd> for a rectangle, <kbd>O</kbd> an ellipse, <kbd>L</kbd> a
+   line, <kbd>P</kbd> the pen, <kbd>V</kbd> to select and drag, and <kbd>?</kbd>
+   for every shortcut. The chip at the top right shows how long your changes
+   take to save; click it for the sync details, including the canvas version
+   both windows should share. `?room=studio` opens the other room, which only
+   `ana` may open.
 
-`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variables
+`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variable
 from step 2 exported, the integration tests run against the same stack:
 
 ```bash
@@ -248,13 +267,63 @@ npx -w @felix-canvas/web playwright install chromium
 npm run test:e2e -w @felix-canvas/web
 ```
 
-The gateway reads `CANVAS_LISTEN`, `CANVAS_FELIX_BROKERS`,
-`CANVAS_FELIX_SERVER_NAME`, `CANVAS_FELIX_CA_FILE`, `CANVAS_FELIX_TOKEN`,
-`CANVAS_TENANT`, `CANVAS_NAMESPACE`, `CANVAS_ROOM` and
-`CANVAS_MEMBER_TTL_SECONDS`; see
-[`gateway/src/config.rs`](gateway/src/config.rs) for their defaults. The
-snapshotter reads the same ones except `CANVAS_LISTEN` and the member TTL, and
-four of its own listed in [docs/development.md](docs/development.md#the-felix-dev-stack).
+[docs/development.md](docs/development.md#the-felix-dev-stack) lists every
+variable the gateway and the snapshotter read.
+
+## Signing in with your own identity provider
+
+Felix Canvas signs people in with any OpenID Connect provider (Entra ID, Okta,
+Auth0, Google, Keycloak and others), and Felix decides who may open which room.
+Packaging for self-hosting comes in M8; these are the settings it will expose.
+
+**At the provider**, register a single-page application (a public client):
+
+| Setting | Value |
+|---|---|
+| Grant | Authorization code with PKCE (S256); no client secret |
+| Redirect URI | The canvas's origin with a trailing slash, such as `https://canvas.example.com/` |
+| Scopes | `openid profile` |
+| Allowed origins (CORS) | The canvas's origin, for discovery and the token endpoint |
+
+**On the gateway:**
+
+| Variable | Value |
+|---|---|
+| `CANVAS_OIDC_ISSUER` | The provider's issuer URL, exactly as it appears in the ID token's `iss` |
+| `CANVAS_OIDC_CLIENT_ID` | The client ID from the registration |
+| `CANVAS_FELIX_CONTROL_PLANE` | The Felix control plane's URL |
+| `CANVAS_TENANT`, `CANVAS_NAMESPACE` | Where the rooms live in Felix |
+
+**In Felix**, the tenant trusts the provider through an entry in its
+`idp_issuers` (at bootstrap, or later with `tenant.manage`):
+
+| Field | Value |
+|---|---|
+| `issuer` | The same issuer URL |
+| `audiences` | `[<client ID>]`, since an ID token's audience is the client |
+| `jwks_url` or `discovery_url` | Where the provider publishes its signing keys |
+| `claim_mappings` | `{"subject_claim": "sub", "groups_claim": "groups"}`; the groups claim only if rooms are granted to groups |
+
+Felix accepts only ES256 ID tokens by default. Entra ID, Okta and Auth0 sign
+with RS256, so set `FELIX_CONTROLPLANE_OIDC_ALLOWED_ALGORITHMS=ES256,RS256` on
+the control plane for them.
+
+**Each room** needs its streams, its caches and a role. For a room `r` in
+tenant `t` and namespace `n`:
+
+- streams `canvas.ops.r` (durable) and `canvas.presence.r` (in memory), one shard each;
+- caches `canvas.seq.r`, `canvas.snap.r` and `canvas.members.r`, one shard each;
+- a role `role:room-r` granted `stream.publish` and `stream.subscribe` on both
+  streams, `cache.write` on `cache:t/n/canvas.seq.r`, `cache.read` on
+  `cache:t/n/canvas.snap.r`, and `cache.read` and `cache.write` on
+  `cache:t/n/canvas.members.r`.
+
+Members are whoever holds the role: assign it to a person by Felix principal
+(the hex SHA-256 of `<issuer>|<subject>`), or to a provider group as
+`group:<issuer>#<group>` to manage rooms in your directory. Removing someone
+takes effect at their session's next token refresh. [`dev/seed.mjs`](dev/seed.mjs)
+does all of this for the development stack, and
+[design.md](docs/design.md#authorization) explains the model.
 
 ## License
 

@@ -26,6 +26,27 @@
         <div class="progress"><div id="joining-bar"></div></div>
       </section>
 
+      <section
+        id="access"
+        class="card access"
+        role="alertdialog"
+        aria-labelledby="access-title"
+        aria-describedby="access-detail"
+        hidden
+      >
+        <div class="access-mark">
+          <img src="/felix-mark.png" alt="" width="40" height="40" />
+          <span class="access-lock" aria-hidden="true"><i data-lucide="lock"></i></span>
+        </div>
+        <h1 id="access-title"></h1>
+        <p id="access-detail"></p>
+        <div class="access-actions">
+          <button id="access-primary" class="button primary"></button>
+          <a id="access-lobby" class="button" href="?room=lobby" hidden>Go to the lobby</a>
+        </div>
+        <p id="access-who" class="access-who"></p>
+      </section>
+
       <section id="empty" class="card empty" hidden>
         <img src="/felix-mark.png" alt="" width="48" height="48" />
         <h1>Start drawing</h1>
@@ -74,6 +95,11 @@
         </button>
         <button role="menuitem" id="hide-ui-item">
           <i data-lucide="eye-off"></i><span>Hide interface</span><kbd>⌘\</kbd>
+        </button>
+        <div class="menu-divider"></div>
+        <div id="account-label" class="menu-label"></div>
+        <button role="menuitem" id="switch-account-item">
+          <i data-lucide="log-out"></i><span>Switch account</span>
         </button>
         <div class="menu-divider"></div>
         <a role="menuitem" href="https://github.com/gabloe/felix" target="_blank" rel="noreferrer">
