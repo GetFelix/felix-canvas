@@ -1,38 +1,60 @@
 import { describe, expect, it } from "vitest";
+import type * as Y from "yjs";
 
 import { EMPTY_DOC, History, apply, stateHash, type Doc, type Op } from "../src/index.js";
+import { Author, block, firstText } from "./authors.js";
 
-/** A seeded log of creates, moves, deletes, repeats and records that are not ops. */
+/**
+ * A seeded log of creates, moves, deletes, text typed into shapes by three
+ * sessions, repeats and records that are not ops.
+ */
 function randomLog(length: number, seed: number): (Op | null)[] {
   const random = () => {
     seed = (seed * 1103515245 + 12345) % 2 ** 31;
     return seed / 2 ** 31;
   };
-  const seqs = [0, 0, 0];
+  const authors = [1n, 2n, 3n].map((sid) => new Author(sid));
   const log: (Op | null)[] = [];
   while (log.length < length) {
     const roll = random();
-    const session = Math.floor(random() * 3);
+    const author = authors[Math.floor(random() * 3)]!;
     const shape = BigInt(1 + Math.floor(random() * 60));
-    const sid = BigInt(session + 1);
     if (roll < 0.03) {
       log.push(null);
     } else if (roll < 0.06 && log.length > 0) {
       // A retried publish landing again further on.
       log.push(log[Math.floor(random() * log.length)] ?? null);
+    } else if (roll < 0.5) {
+      author.catchUp(log);
+      log.push(author.edit(shape, (body) => type(body, random)));
     } else {
-      const seq = seqs[session]!++;
-      const kind = roll < 0.25 ? "create" : roll < 0.3 ? "delete" : "patch";
+      const kind = roll < 0.65 ? "create" : roll < 0.68 ? "delete" : "patch";
       const fields =
         kind === "create"
           ? { type: "rect", x: 0, y: 0, w: 10, h: 10, z: "V" }
           : kind === "patch"
             ? { x: Math.round(random() * 500), y: Math.round(random() * 500) }
             : {};
-      log.push({ sid, seq, shape, kind, fields });
+      log.push({ sid: author.sid, seq: author.seq++, shape, kind, fields });
     }
   }
   return log;
+}
+
+/** Insert, delete or format a little text, as a person typing would. */
+function type(body: Y.XmlFragment, random: () => number): void {
+  if (body.length === 0) body.insert(0, [block("")]);
+  const text = firstText(body);
+  const at = Math.floor(random() * (text.length + 1));
+  const roll = random();
+  if (roll < 0.6 || text.length < 2) text.insert(at, "ab ");
+  else if (roll < 0.8) text.delete(Math.min(at, text.length - 1), 1);
+  else
+    text.format(
+      0,
+      Math.ceil(text.length / 2),
+      roll < 0.9 ? { b: {} } : { color: { name: "blue" } },
+    );
 }
 
 /** The hash of a fresh fold of `log` to every position from `start`, on top of `base`. */
@@ -51,20 +73,23 @@ describe("History", () => {
   const log = randomLog(3000, 7);
 
   it("gives the same state as a fresh fold at every position, scrubbed in any order", () => {
+    expect(log.filter((op) => op?.kind === "text").length).toBeGreaterThan(1000);
     const history = new History();
     for (const op of log) history.push(op);
     const expected = freshHashes(log, EMPTY_DOC, 0);
 
-    // Forwards, backwards, then jumps both ways, as a playhead dragged back and forth would.
+    // Forwards, backwards, then jumps both ways, as a playhead dragged back and
+    // forth would. Every backward step decodes the bodies it touches, so those
+    // are sampled.
     const positions = [
       ...expected.keys(),
-      ...[...expected.keys()].reverse(),
-      ...Array.from({ length: 2000 }, (_, i) => (i * 7919) % expected.length),
+      ...[...expected.keys()].reverse().filter((position) => position % 7 === 0),
+      ...Array.from({ length: 300 }, (_, i) => (i * 7919) % expected.length),
     ];
     for (const position of positions) {
       expect(stateHash(history.at(position)), `position ${position}`).toBe(expected[position]);
     }
-  });
+  }, 30_000);
 
   it("starts from a state that stands in for a log trimmed below it", () => {
     const start = 1100;

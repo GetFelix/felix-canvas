@@ -354,7 +354,7 @@ a Yjs update in Yjs's version 2 encoding, which is the smaller one for typing.
 Typing a few characters makes an op of about 100 bytes, 16 of them the shape id.
 
 - **Dedupe is unchanged.** The fold checks `(sid, seq)` before it looks at the kind, so a retried text op is dropped like any other. Yjs updates are also idempotent, so a repeat that got past the check would change nothing.
-- **Ignored like a patch.** A text op on a shape that does not exist, on a line or a stroke, or whose update does not decode, changes nothing. A delete stays final.
+- **Ignored like a patch.** A text op on a shape that does not exist, on a line or a stroke, or whose update does not decode, changes nothing. A delete stays final. The fold decodes an update in full before applying it, because Yjs can throw halfway through applying a malformed one, and a fold working in place would keep the half.
 - **Bounded.** An op whose update is over 64 KB is ignored. The fold and the editor apply the same rule, so every replica agrees on what a body holds. The editor refuses a paste that would take a body past 10,000 characters, so an honest client never comes near the bound.
 - **Client ids.** A Yjs client id is a 32-bit hash of the session id, so a body's state vector gains one entry per session that edits it, not one per editing turn.
 
@@ -363,8 +363,11 @@ it had seen, which reached it through the log at lower offsets, and on its own
 earlier ops, which reach the log first because a session's ops land in `seq`
 order. Applied in offset order, an update's dependencies are always there
 already. A body left with Yjs pending structures after an op means a record was
-skipped, and every replica treats that as a broken fold to recover from, not as
-something to wait out.
+skipped, or that the log never held what an author's update depends on, which
+only a broken or hostile client can cause. A browser's offset-gap detection
+already rules out the first, and the second leaves every replica holding the
+same waiting update, so browsers do nothing about it. The snapshotter, which
+can skip a record (see Snapshots), checks.
 
 ### The fold
 
@@ -372,8 +375,8 @@ something to wait out.
 body's Yjs state, encoded, and its derived content, worked out on first use.
 
 - `apply` makes a new body from the old state plus the update. That costs time in proportion to the body, which is fine at the rate one person's ops arrive.
-- `applyInPlace` keeps one live `Y.Doc` per body it has touched and applies updates to it directly. Copying out, at a kept history state or an answer, re-encodes only the bodies that changed. This is the same split as for shapes, for the same reason.
-- The live replica's confirmed state only moves forward, so it keeps live documents for the bodies it sees change rather than decoding one per delivered op.
+- `applyInPlace` keeps one live `Y.Doc` per body it has touched and applies updates to it directly. Freezing, at a kept history state or an answer, hands each changed document to a new `TextBody`, which encodes it only when something asks for its state; the next change to that body takes the document back after encoding it. This is the same split as for shapes, for the same reason.
+- The live replica's confirmed state only moves forward, so it folds in place and freezes when it is read, at most once a frame, rather than decoding a body per delivered op.
 - A delete removes the shape's body with it.
 
 Derived content is what the renderer draws and the hash covers: blocks, each
@@ -444,10 +447,14 @@ per body, where `state` is `Y.encodeStateAsUpdateV2` of its document. The
 decoder still reads version 1, which has no text. The snapshotter folds in
 place and encodes bodies only when it writes.
 
-Before writing, the snapshotter checks that no body has pending Yjs
-structures. If one does, a record was skipped (see the snapshotter startup wait
-below), so it writes nothing, logs it, and starts again from the stored
-snapshot; the records it had not acknowledged come back.
+Before writing, the snapshotter checks that no body it changed has pending
+Yjs structures. If one does, a record was probably skipped (see the
+snapshotter startup wait below), so it writes nothing, logs it, and starts
+again from the stored snapshot once the records it had not acknowledged come
+back, a visibility timeout later. If the same body waits for the same thing
+again after that, the log itself lacks it, and the snapshotter writes the
+snapshot with the waiting update in it, as every browser holds it. Without
+that second rule one bad update would stop a room's snapshots for good.
 
 A joining browser decodes each body once, which costs time in proportion to the
 text in the room. A snapshot must stay under the broker's 16 MiB frame limit;
