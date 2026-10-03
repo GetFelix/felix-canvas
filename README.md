@@ -1,12 +1,32 @@
-# Felix Canvas
+<p align="center">
+  <img src="docs/brand/felix-canvas-mark.png" alt="Felix Canvas: the Felix cat with a pen stroke and two cursors" width="200">
+</p>
 
-A multiplayer drawing canvas whose entire backend is [Felix](https://github.com/gabloe/felix).
+<h1 align="center">Felix Canvas</h1>
+
+<p align="center">
+  A self-hosted multiplayer drawing canvas whose entire backend is <a href="https://github.com/gabloe/felix">Felix</a>.<br>
+  No Postgres, Redis or Kafka beside it.
+</p>
+
+<p align="center">
+  <a href="https://github.com/gabloe/felix-canvas/actions/workflows/ci.yml"><img src="https://github.com/gabloe/felix-canvas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/sync-dark.png">
+  <img src="docs/screenshots/sync-light.png" alt="Two people editing one room, with the sync panel open">
+</picture>
+
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
-caches, with no Postgres, Redis or Kafka beside it.
+caches. You run it yourself: Felix, a stateless gateway and the web app.
 
 **Status: M1 done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
+Packaged images for self-hosting come in M8; until then, see
+[Running locally](#running-locally).
 
 ## Why it exists
 
@@ -82,6 +102,7 @@ the milestone plan.
 | 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | |
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
+| 8 | Images, a compose install, your own IdP, a Helm chart | Anyone can self-host it | |
 
 Each milestone is tracked as a [GitHub milestone](https://github.com/gabloe/felix-canvas/milestones)
 with an issue per piece of work.
@@ -124,6 +145,7 @@ M1 makes the log the document. What it proves, in CI against the same images:
 | `docs/protocol.md` | The browser to gateway protocol |
 | `docs/ux.md` | The UX and visual design brief the interface is built from |
 | `docs/development.md` | Where to run it, the lockfile rule, the dev stack and CI |
+| `docs/brand/` | The Felix Canvas mark, adapted from the Felix logo |
 | `CONTRIBUTING.md` | How code, comments and pull requests should read |
 
 ## Running locally
