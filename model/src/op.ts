@@ -1,5 +1,5 @@
 /** What an op does to its shape. */
-export type OpKind = "create" | "patch" | "delete";
+export type OpKind = "create" | "patch" | "delete" | "text";
 
 /** A shape field's value. Anything MessagePack carries without extensions. */
 export type FieldValue =
@@ -19,7 +19,7 @@ export interface Op {
   /** Target shape, a u128 chosen by the client that created it. */
   shape: bigint;
   kind: OpKind;
-  /** Only the fields this op changes. Empty for a delete. */
+  /** Only the fields this op changes. Empty for a delete; for `text`, `y`, a Yjs update. */
   fields: Record<string, FieldValue>;
   /**
    * When the edit was made, in milliseconds since 1970 by the author's clock.

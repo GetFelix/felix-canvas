@@ -1,4 +1,4 @@
-import { EMPTY_DOC, applyInPlace, draft, type Doc, type DraftDoc } from "./doc.js";
+import { EMPTY_DOC, applyInPlace, draft, freeze, type Doc, type DraftDoc } from "./doc.js";
 import type { Op } from "./op.js";
 
 /** Records between kept states. Seeking folds at most this many. */
@@ -11,7 +11,9 @@ const CHECKPOINT_EVERY = 256;
  * kept state, so it matches a fold of the whole log to that position.
  *
  * It folds in place and copies only at kept states and answers: copying a
- * document per op would make loading a long history take seconds.
+ * document per op would make loading a long history take seconds. Text
+ * bodies are live documents while folding, frozen with the state that holds
+ * them, so a seek decodes only the bodies its ops touch.
  */
 export class History {
   readonly start: number;
@@ -44,7 +46,7 @@ export class History {
       this.#headCopy = null;
     }
     this.#records.push(op);
-    if (this.#records.length % CHECKPOINT_EVERY === 0) this.#kept.push(draft(this.#head));
+    if (this.#records.length % CHECKPOINT_EVERY === 0) this.#kept.push(freeze(this.#head));
   }
 
   /** The op at `offset`, or `null` if that record is not one or is not held. */
@@ -61,7 +63,7 @@ export class History {
     if (!Number.isInteger(position) || position < this.start || position > this.end) {
       throw new RangeError(`position ${position} is outside ${this.start}..${this.end}`);
     }
-    if (position === this.end) return (this.#headCopy ??= draft(this.#head));
+    if (position === this.end) return (this.#headCopy ??= freeze(this.#head));
     const index = Math.floor((position - this.start) / CHECKPOINT_EVERY);
     let from = this.start + index * CHECKPOINT_EVERY;
     let start = this.#kept[index]!;
@@ -70,11 +72,12 @@ export class History {
       ({ position: from, doc: start } = this.#last);
     }
     if (from === position) return start;
-    const doc = draft(start);
+    const working = draft(start);
     for (; from < position; from++) {
       const op = this.#records[from - this.start];
-      if (op) applyInPlace(doc, op, from);
+      if (op) applyInPlace(working, op, from);
     }
+    const doc = freeze(working);
     this.#last = { position, doc };
     return doc;
   }

@@ -52,9 +52,11 @@ function roomLog(room: string): RoomLog {
       client.cachePut(tenant, namespace, snapshots, snapshotKey, Buffer.from(bytes)),
   };
 }
+const claimMs = Number(env("CANVAS_SNAPSHOTTER_CLAIM_WAIT_MS", "30000"));
 const schedule = {
   everyOps: Number(env("CANVAS_SNAPSHOT_EVERY_OPS", "500")),
   everyMs: Number(env("CANVAS_SNAPSHOT_EVERY_MS", "30000")),
+  claimMs,
 };
 const snapshotters = new Map(rooms.map((room) => [room, new Snapshotter(roomLog(room), schedule)]));
 
@@ -66,10 +68,7 @@ createServer((_request, response) => {
   console.log(`snapshotter for ${rooms.join(", ")} serving its position on ${host}:${port}`),
 );
 
-const waitOutClaims = () =>
-  new Promise((resolve) =>
-    setTimeout(resolve, Number(env("CANVAS_SNAPSHOTTER_CLAIM_WAIT_MS", "30000"))),
-  );
+const waitOutClaims = () => new Promise((resolve) => setTimeout(resolve, claimMs));
 
 await Promise.all([...snapshotters.values()].map((snapshotter) => snapshotter.start()));
 // Records a previous run claimed and never acknowledged stay claimed until
