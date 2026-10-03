@@ -21,6 +21,11 @@ export interface Presence {
   selection: bigint[];
   /** Set on the last message of a session that is closing. */
   gone?: boolean;
+  /**
+   * How many changes the session has applied: its next log offset. A viewer
+   * that has fewer for long has lost its newest changes.
+   */
+  applied?: number;
 }
 
 /**
@@ -58,6 +63,7 @@ export function encodePresence(presence: Presence): Uint8Array {
     y: presence.cursor?.y ?? null,
     sel: presence.selection.map(u128ToBytes),
     ...(presence.gone ? { gone: true } : {}),
+    ...(presence.applied !== undefined ? { at: presence.applied } : {}),
   });
 }
 
@@ -85,7 +91,7 @@ export function decodeMember(bytes: Uint8Array): Member {
  * @throws PresenceDecodeError if the bytes are not a presence message.
  */
 export function decodePresence(bytes: Uint8Array): Presence {
-  const { sid, n, name, color, x, y, sel, gone } = decodeMap(bytes);
+  const { sid, n, name, color, x, y, sel, gone, at } = decodeMap(bytes);
   const sidValue = u64(sid, "sid");
   if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > MAX_U32) {
     throw new PresenceDecodeError("n must be a u32");
@@ -105,6 +111,7 @@ export function decodePresence(bytes: Uint8Array): Presence {
     cursor,
     selection: sel.map(bytesToU128),
     ...(gone === true ? { gone: true } : {}),
+    ...(Number.isSafeInteger(at) && (at as number) >= 0 ? { applied: at as number } : {}),
   };
 }
 

@@ -209,6 +209,8 @@ Object.assign(window, {
     shapes: () => shapes().length,
     firstFrameMs: () => firstFrameMs,
     snapshotOffset: () => session.snapshotOffset,
+    fellBehind: () => session.fellBehind,
+    saveTimes: (count: number) => session.editTrips.latest(count),
   },
 });
 

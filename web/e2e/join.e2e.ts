@@ -1,75 +1,10 @@
-import { encodeOp, randomSessionId, type Op } from "@felix-canvas/model";
 import { expect, test } from "@playwright/test";
 
-import { hashes, join, leaveAll, read, settle } from "./helpers";
+import { Writer, hashes, join, leaveAll, read, settle } from "./helpers";
 
 test.afterEach(leaveAll);
 
-const GATEWAY = "ws://127.0.0.1:8787/ws";
 const SNAPSHOTTER = "http://127.0.0.1:8788/";
-const IDP = "http://127.0.0.1:9400";
-
-/** A session that publishes ops over its own gateway connection, as a browser does. */
-class Writer {
-  readonly sid = randomSessionId();
-  readonly #socket: WebSocket;
-  readonly #acks = new Map<number, (offset: number) => void>();
-  #seq = 0;
-  #id = 0;
-
-  private constructor(socket: WebSocket) {
-    this.#socket = socket;
-    socket.addEventListener("message", (message) => {
-      const reply = JSON.parse(String(message.data));
-      if (reply.type === "ack") this.#acks.get(reply.id)?.(reply.offset);
-      if (reply.type === "error") console.error(`gateway: ${reply.message}`);
-    });
-  }
-
-  /** Join the lobby as ana, with an ID token straight from the development IdP. */
-  static async open(): Promise<Writer> {
-    const response = await fetch(`${IDP}/token?sub=ana&aud=felix-canvas`);
-    const { id_token: token } = (await response.json()) as { id_token: string };
-    const socket = new WebSocket(GATEWAY);
-    return new Promise((resolve, reject) => {
-      socket.addEventListener(
-        "open",
-        () => socket.send(JSON.stringify({ type: "join", room: "lobby", token })),
-        { once: true },
-      );
-      socket.addEventListener(
-        "message",
-        (message) => {
-          const hello = JSON.parse(String(message.data));
-          if (hello.type === "hello") resolve(new Writer(socket));
-          else reject(new Error(`join refused: ${hello.message}`));
-        },
-        { once: true },
-      );
-      socket.addEventListener("error", reject, { once: true });
-    });
-  }
-
-  /** Publish an op and resolve with its log offset. */
-  publish(shape: bigint, kind: Op["kind"], fields: Op["fields"]): Promise<number> {
-    const id = this.#id++;
-    const payload = encodeOp({ sid: this.sid, seq: this.#seq++, shape, kind, fields });
-    this.#socket.send(
-      JSON.stringify({
-        type: "publish",
-        stream: "ops",
-        payload: Buffer.from(payload).toString("base64"),
-        ack: true,
-        id,
-      }),
-    );
-    return new Promise((resolve) => this.#acks.set(id, resolve));
-  }
-
-  close(): void {
-    this.#socket.close();
-  }
-}
 
 /**
  * Fill the room with `count` ops from `sessions` writers: each creates a

@@ -102,7 +102,7 @@ Three settings there exist only because of Felix gaps, each filed upstream:
 | Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
 | Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it, including the narrowing test: a token for one room is refused by the broker on another room's streams, counters, snapshot and member list |
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
-| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, and a person who is not a member being shown that they cannot open a room. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
+| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, and a throttled browser catching up while the others' save time holds. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 
 ## Milestones and issues
 

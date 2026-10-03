@@ -457,6 +457,34 @@ out.
 With `DropNew`, a slow viewer loses **new** ops rather than queued old ones,
 which is why recovery must be offset-driven rather than "wait for it to drain".
 
+It also means the last ops of a burst can be the ones dropped, and then no
+later op arrives to reveal the gap. Felix gives the subscriber no signal for
+that, so peers fill in: each presence message carries how many changes its
+sender has applied, and a viewer that is still short of a peer's count two
+seconds later treats it as a drop. Presence is sent at least every 3 seconds,
+so a silent tail loss is found within a few seconds.
+
+### The slow-client lane
+
+The Sync panel has a switch that throttles its own tab to 100 kbit/s. The
+gateway then reads that connection's Felix subscriptions no faster than such a
+link would carry the events. It drops nothing itself: Felix's bounded queue for
+that subscriber fills and drops new events, exactly as for a viewer on a bad
+network. The throttle sits in the gateway rather than in the network because it
+has to work per browser tab and in CI, where shaping one WebSocket with `tc` is
+neither.
+
+The throttled tab shows "Your connection is slow" with a count of the changes
+it is catching up on, reads them from the log, and ends with "Back in sync" and
+its canvas version, which matches the version in any other window's Sync panel.
+The end-to-end test `web/e2e/isolation.e2e.ts` runs this with three browsers
+under 300 changes a second: the throttled one reports its loss and reaches the
+same state hash, and the other browsers' save time stays within the 50 ms
+target and within 1.5 times plus 10 ms of its median without the throttled
+viewer. On a 4-core Codespace the median moves from about 21 ms to about 26 ms.
+That is the cost of the throttled tab reading its missed changes back from the
+log, which is real work for the broker; nobody waits on the slow tab itself.
+
 ## Performance targets
 
 Set by human perception, not by Felix's ceilings.

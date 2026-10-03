@@ -109,7 +109,7 @@ One status chip in the top-right island: an 8 px dot and a short label. It chang
 |---|---|---|---|
 | Live | Subscribed, no gap, acks flowing | Green dot, "Live", plus own round trip ("Live · 23 ms") | Nothing |
 | Saving | Unacked local ops for more than 300 ms | Dot pulses, "Saving 3" | Nothing |
-| Catching up | Offset gap detected, re-subscribing from last applied offset | Amber dot, "Catching up" and a thin determinate bar under the chip from gap start to tail | Canvas stays interactive; local edits still queue |
+| Catching up | Offset gap detected, re-subscribing from last applied offset | Amber dot, "Catching up" and a thin determinate bar under the chip from gap start to tail | After a drop, a notice at top centre: "Your connection is slow" over "Catching up on 439 changes", with its own bar. Canvas stays interactive; local edits still queue |
 | Reconnecting | Socket lost, retrying | Amber dot, "Reconnecting" after an 800 ms grace period | Nothing for brief drops, as the design promises |
 | Offline | Retries exhausted or browser offline | Grey dot, "Offline · 5 edits queued" | Bottom toast only if edits are queued, Figma-style |
 | Rejoining | Offset below retention, snapshot rejoin | Amber dot, "Rebuilding" | Canvas dims to 60% with a centred card: "Loading the canvas: 422 recent changes" |
@@ -162,7 +162,7 @@ UI motion stays under 300 ms and uses strong ease-out for entering elements ([Em
 
 ## Icons
 
-Use [Lucide](https://lucide.dev) at 18 px with a 1.75 px stroke, the size and weight that match Inter at 13 px. Excalidraw uses Tabler, which shares Lucide's 24 px, 2 px stroke language ([Excalidraw discussion](https://github.com/excalidraw/excalidraw/discussions/7184), [Tabler vs Lucide](https://iconstack.io/compare/tabler-vs-lucide)); Lucide is MIT licensed and ships plain SVGs and a framework-free `lucide` package, which suits a canvas with no UI framework. Figma drew 200 custom icons for UI3, which is the bar to aim for in consistency, not in count. Draw only one custom glyph: an offset-gap icon (a dashed segment in a line) for catching up.
+Use [Lucide](https://lucide.dev) at 18 px with a 1.75 px stroke, the size and weight that match Inter at 13 px. Excalidraw uses Tabler, which shares Lucide's 24 px, 2 px stroke language ([Excalidraw discussion](https://github.com/excalidraw/excalidraw/discussions/7184), [Tabler vs Lucide](https://iconstack.io/compare/tabler-vs-lucide)); Lucide is MIT licensed and ships plain SVGs and a framework-free `lucide` package, which suits a canvas with no UI framework. Figma drew 200 custom icons for UI3, which is the bar to aim for in consistency, not in count. Draw only one custom glyph: an offset-gap icon (a dashed segment in a line) for catching up, used in the slow-connection notice.
 
 ## Performance feel
 
@@ -187,7 +187,7 @@ The app exists to show three Felix properties: fanout is cheap, a slow client hu
 
 1. **Round-trip number on the chip.** "Live · 23 ms" is the time from making a change to seeing it confirmed (publish to own delivery on the op log), p50 over the last ten seconds, in mono. With no edits in that window it shows the same measurement on the presence stream, which every session publishes to at least every 3 seconds. It is small and always there, which is what makes it credible.
 2. **Status popover** (click the chip), titled "Sync". A 320 px card with rows in mono: "Changes in this room" (the log tail), "Synced here" (what this tab has applied), "Save time" p50 and p99 with a 60-point sparkline (the edit round trip), "Cursor delay", "Your connection" and "Server save" (the gateway's two legs, browser to gateway and gateway to Felix ack) so the latency budget is visible, and "Canvas version" (the state hash of the applied prefix). A row for viewers in the room comes with presence membership. No other numbers.
-3. **Catching up as a feature, not an error.** The determinate bar counts the gap ("Catching up on 439 changes") and ends with "Up to date · version a3f9 matches". The hash check is demonstration 3 made visible.
+3. **Catching up as a feature, not an error.** The notice counts the gap ("Catching up on 439 changes") and ends with "Back in sync" over "Up to date · version a3f9", the same version another window's Sync panel shows. The hash check is demonstration 3 made visible.
 4. **A slow-lane switch** in the popover: "Throttle this tab to 100 kbit/s". Presenters flip it, everyone else's chip keeps showing the same round trip, and this tab walks through catching up and converges. That is demonstration 2 on screen, with no terminal.
 5. **Change numbers in the scrubber axis and the shape tooltip** ("last edited at change 18,390"). The log is the document, so its history is addressed by change number, which is the log offset underneath.
 6. **An Inspect view** (`\` toggles) that labels each shape with its last change number and author colour in 10 px mono badges. It is off by default and lives in the view menu, so the normal canvas stays clean.
