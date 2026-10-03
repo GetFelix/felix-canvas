@@ -9,6 +9,8 @@ export interface OidcConfig {
   scopes: string;
 }
 
+// Per tab, so two windows of one browser can be signed in to different
+// accounts. Returning from the provider lands in the same tab, so it survives.
 const TOKEN_KEY = "felix-canvas.id-token";
 const PENDING_KEY = "felix-canvas.sign-in";
 /** A token this close to expiry is treated as expired, so a join never races it. */
@@ -70,10 +72,10 @@ export async function signedIn(config: OidcConfig): Promise<string | null> {
     const error = params.get("error");
     if (error) throw new Error(params.get("error_description") ?? error);
     const token = await redeem(config, params.get("code") ?? "", pending);
-    write(localStorage, TOKEN_KEY, token);
+    write(sessionStorage, TOKEN_KEY, token);
     return token;
   }
-  const stored = read<string>(localStorage, TOKEN_KEY);
+  const stored = read<string>(sessionStorage, TOKEN_KEY);
   return stored && fresh(stored) ? stored : null;
 }
 
@@ -105,7 +107,7 @@ export async function signIn(config: OidcConfig): Promise<never> {
 /** Forget the stored sign-in, so the next load signs in again. */
 export function signOut(): void {
   try {
-    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
   } catch {}
 }
 

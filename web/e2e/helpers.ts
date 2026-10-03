@@ -36,29 +36,24 @@ const opened: BrowserContext[] = [];
 /**
  * Open `room` in a fresh context, signed in as `user`: through the development
  * IdP, or with CANVAS_E2E_PASSWORD through a Dex login form as
- * `<user>@example.com`. With `name`, the page uses it as its display name.
- * Returns once the page is back from signing in, joined or not.
+ * `<user>@example.com`. Returns once the page is back from signing in, joined
+ * or not.
  */
 export async function open(
   browser: Browser,
   {
     user = "ana",
     room = "lobby",
-    name,
     setup,
   }: {
-    user?: string;
+    user?: string | undefined;
     room?: string;
-    name?: string | undefined;
     /** Runs on the new page before it loads, to attach listeners. */
     setup?: ((page: Page) => void) | undefined;
   } = {},
 ): Promise<Page> {
   const context = await browser.newContext();
   opened.push(context);
-  if (name) {
-    await context.addInitScript((saved) => localStorage.setItem("felix-canvas.name", saved), name);
-  }
   const page = await context.newPage();
   setup?.(page);
   await page.goto(`/?room=${room}`);
@@ -68,19 +63,24 @@ export async function open(
     await page.locator("input[name=password]").fill(password);
     await page.locator("#submit-login").click();
   } else {
-    await page.getByRole("link", { name: `Continue as ${user}` }).click();
+    // The form takes any name, not only those the page offers as links.
+    await page.getByRole("textbox", { name: "Name" }).fill(user);
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
   }
   await page.waitForURL(`**/?room=${room}`);
   return page;
 }
 
-/** Open the lobby as {@link open} does and wait until it shows a correct frame. */
+/**
+ * Open the lobby as {@link open} does, signed in as `name` in lower case, or as
+ * ana without one, and wait until it shows a correct frame.
+ */
 export async function join(
   browser: Browser,
   name?: string,
   setup?: (page: Page) => void,
 ): Promise<Page> {
-  const page = await open(browser, { name, setup });
+  const page = await open(browser, { user: name?.toLowerCase(), setup });
   await expect(page.locator("#joining")).toBeHidden({ timeout: 30_000 });
   return page;
 }
