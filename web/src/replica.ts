@@ -1,0 +1,129 @@
+import {
+  EMPTY_DOC,
+  apply,
+  decodeOp,
+  type Doc,
+  type FieldValue,
+  type Op,
+} from "@felix-canvas/model";
+
+// Pending edits are overlaid at offsets past anything a log reaches, in the
+// order they were made, so a local write wins over every delivered one until
+// the log hands it back.
+const LOCAL_OFFSET = 2 ** 52;
+
+/** One of this session's edits the log has not delivered back yet. */
+export interface PendingEdit {
+  op: Op;
+  /** When it was last handed to the gateway, by `performance.now()`; `null` if not yet. */
+  sentAt: number | null;
+}
+
+interface Buffered {
+  skippedBefore: number;
+  payload: Uint8Array;
+}
+
+/**
+ * A room's replica. `confirmed` is the fold of the op log in offset order;
+ * the view adds this session's pending edits on top.
+ *
+ * Records are applied strictly in offset order, whatever order they arrive
+ * in: one ahead of the next expected offset waits, and one already applied is
+ * dropped. Repeats of an op at a new offset are absorbed by the fold's dedupe.
+ * Figma's rule falls out of the overlay: a field with an unacknowledged local
+ * write shows that write, and once the log delivers it the confirmed value is
+ * the same one, so nothing flickers.
+ */
+export class Replica {
+  readonly sid: bigint;
+  #confirmed: Doc = EMPTY_DOC;
+  #next = 0;
+  readonly #ahead = new Map<number, Buffered>();
+  readonly #pending: PendingEdit[] = [];
+  #view: Doc | undefined;
+
+  constructor(sid: bigint) {
+    this.sid = sid;
+  }
+
+  /** The state the log alone gives, up to {@link next}. */
+  get confirmed(): Doc {
+    return this.#confirmed;
+  }
+
+  /** The next offset to apply: everything below it has been. */
+  get next(): number {
+    return this.#next;
+  }
+
+  /** Whether a record is waiting on offsets that have not arrived. */
+  get hasGap(): boolean {
+    return this.#ahead.size > 0;
+  }
+
+  get pending(): readonly PendingEdit[] {
+    return this.#pending;
+  }
+
+  /** What to draw: the confirmed state with pending edits on top. */
+  view(): Doc {
+    this.#view ??= this.#pending.reduce(
+      (doc, { op }, i) => apply(doc, op, LOCAL_OFFSET + i),
+      this.#confirmed,
+    );
+    return this.#view;
+  }
+
+  /** Show a local edit at once. It stays pending until the log delivers it. */
+  edit(op: Op): void {
+    this.#pending.push({ op, sentAt: null });
+    this.#view = undefined;
+  }
+
+  /**
+   * Fold `fields` into the newest pending edit if it is an unsent patch of
+   * `shape`, so a drag while disconnected queues one op rather than one per
+   * frame. Returns whether it did.
+   */
+  amend(shape: bigint, fields: Record<string, FieldValue>): boolean {
+    const last = this.#pending.at(-1);
+    if (!last || last.sentAt !== null || last.op.kind !== "patch" || last.op.shape !== shape) {
+      return false;
+    }
+    last.op = { ...last.op, fields: { ...last.op.fields, ...fields } };
+    this.#view = undefined;
+    return true;
+  }
+
+  /**
+   * Take one record delivered at `offset`. Returns this session's edits that
+   * it confirmed, which may include buffered records it unblocked.
+   */
+  deliver(offset: number, skippedBefore: number, payload: Uint8Array): PendingEdit[] {
+    if (offset < this.#next || this.#ahead.has(offset)) return [];
+    this.#ahead.set(offset, { skippedBefore, payload });
+    const confirmed: PendingEdit[] = [];
+    while (this.#ahead.size > 0) {
+      const at = Math.min(...this.#ahead.keys());
+      const record = this.#ahead.get(at)!;
+      if (at - record.skippedBefore > this.#next) break;
+      this.#ahead.delete(at);
+      this.#next = at + 1;
+      let op: Op;
+      try {
+        op = decodeOp(record.payload);
+      } catch {
+        // Not an op. The offset still counts as applied.
+        continue;
+      }
+      this.#confirmed = apply(this.#confirmed, op, at);
+      this.#view = undefined;
+      if (op.sid === this.sid) {
+        const mine = this.#pending.findIndex((edit) => edit.op.seq === op.seq);
+        if (mine >= 0) confirmed.push(...this.#pending.splice(mine, 1));
+      }
+    }
+    return confirmed;
+  }
+}

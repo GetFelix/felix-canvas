@@ -2,3 +2,5 @@ target/
 node_modules/
 dist/
 dev/state/
+test-results/
+playwright-report/
