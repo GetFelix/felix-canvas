@@ -237,8 +237,92 @@ docker compose up -d --force-recreate
 
 ## Kubernetes
 
-A Helm chart is on the way; until then, the compose install above is the
-supported one.
+`deploy/helm/felix-canvas` runs the canvas next to a release of the
+[felix chart](https://github.com/gabloe/felix/tree/main/deploy/helm/felix):
+the gateway scaled horizontally, one snapshotter, and the seed as a Job. The
+[chart's README](../deploy/helm/felix-canvas/README.md) lists what it renders.
+
+The brokers need a credential, the seed mints it, and the seed needs the
+control plane, so the two charts go in this order. CI runs exactly this on
+kind, with the values in `deploy/helm/felix-canvas/ci/`.
+
+1. Three Secrets: the control plane's bootstrap token, its Raft peer token,
+   and the brokers' client certificate, which must name what the canvas dials
+   (`felix-broker` here):
+
+   ```bash
+   kubectl create secret generic felix-bootstrap --from-literal=token="$(openssl rand -hex 24)"
+   kubectl create secret generic felix-raft-peer --from-literal=token="$(openssl rand -hex 24)"
+   kubectl create secret tls felix-broker-tls --cert=broker.crt --key=broker.key
+   ```
+
+2. The felix chart with its brokers off. `ci/felix-values.yaml` is a starting
+   point: a three-member Raft control plane, which keeps the metadata in its
+   own volumes so no database is needed, the broker settings the canvas wants
+   (acks with offsets, small delivery batches, a deep writer queue, 16 MiB segments), each broker
+   advertised by pod IP, and the control plane's token lifetime and accepted
+   algorithms as in the compose install. Add brokers and peer mTLS as the
+   felix chart's README describes.
+
+   ```bash
+   git clone --depth 1 --branch v0.6.0-preview https://github.com/gabloe/felix
+   helm install felix felix/deploy/helm/felix -f felix-values.yaml
+   ```
+
+3. This chart, with your provider and rooms. Its seed Job stores the broker
+   credential in the Secret `felix-canvas-broker-credential`:
+
+   ```bash
+   helm install felix-canvas deploy/helm/felix-canvas -f canvas-values.yaml
+   kubectl wait --for=condition=complete job -l app.kubernetes.io/component=seed
+   ```
+
+   where `canvas-values.yaml` sets at least:
+
+   ```yaml
+   felix:
+     controlPlaneUrl: http://felix-controlplane:8443
+     brokers: [felix-broker:5000]
+     serverName: felix-broker
+     caSecret: { name: felix-broker-tls, key: tls.crt }
+   seed:
+     bootstrapUrl: http://felix-controlplane-bootstrap:9095
+     bootstrapSecret: { name: felix-bootstrap }
+   oidc:
+     issuer: https://login.example.com/realms/canvas
+     clientId: felix-canvas
+   rooms: lobby=ana@example.com,ben@example.com
+   gateway:
+     ingress:
+       enabled: true
+       host: canvas.example.com
+       tlsSecret: canvas-example-com-tls
+   ```
+
+4. The brokers:
+
+   ```bash
+   helm upgrade felix felix/deploy/helm/felix -f felix-values.yaml --set broker.enabled=true
+   ```
+
+With three or more brokers, set `felix.replicas: 3` before the first install,
+so every room is copied to three brokers and survives losing one.
+
+The snapshotter waits for its token on a first install and for the brokers
+after that, so it restarts a few times before it settles.
+
+Each `helm upgrade` of this chart runs the seed again, which adds new rooms and
+members and re-mints both tokens. The broker and the snapshotter read theirs
+only at start ([felix#955](https://github.com/gabloe/felix/issues/955)), so
+restart both within the token lifetime:
+
+```bash
+kubectl rollout restart statefulset/felix-broker deployment/felix-canvas-snapshotter
+```
+
+Back up the control plane's Raft volumes and the brokers' volumes together,
+for the same reason as in the compose install, with the control plane and the
+brokers scaled to zero so nothing is mid-write.
 
 ## Configuration reference
 

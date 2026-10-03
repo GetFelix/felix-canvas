@@ -7,7 +7,7 @@
 // Every setting is optional and defaults to the development stack in dev/.
 // docs/self-hosting.md describes each one.
 import { createHash } from "node:crypto";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 
 const env = (name, fallback) => process.env[name] || fallback;
 
@@ -230,9 +230,11 @@ for (const [room, members] of Object.entries(MEMBERS)) {
   }
 }
 
-// The broker runs as uid 65532 and writes its certificate here too.
+// The dev stack's broker runs as uid 65532 and writes its certificate here
+// too. Elsewhere the directory is already the seed's own, or not ours to
+// change, as with a Kubernetes emptyDir.
 await mkdir(STATE, { recursive: true });
-await chmod(STATE, 0o777);
+await chmod(STATE, 0o777).catch(() => {});
 const broker = await exchange("canvas-broker", { audience: "felix-controlplane" });
 await writeFile(`${STATE}/node.token`, broker, { mode: 0o644 });
 const snapshotter = await exchange("canvas-snapshotter", {
@@ -240,3 +242,23 @@ const snapshotter = await exchange("canvas-snapshotter", {
 });
 await writeFile(`${STATE}/snapshotter.token`, snapshotter, { mode: 0o644 });
 console.log(`wrote node.token and snapshotter.token to ${STATE}`);
+
+// In Kubernetes the tokens also go to Secrets, which the broker and
+// snapshotter pods mount. Needs NODE_EXTRA_CA_CERTS set to the cluster's CA.
+async function storeSecret(name, token) {
+  const account = "/var/run/secrets/kubernetes.io/serviceaccount";
+  const namespace = (await readFile(`${account}/namespace`, "utf8")).trim();
+  const auth = { token: (await readFile(`${account}/token`, "utf8")).trim() };
+  const secrets = `https://kubernetes.default.svc/api/v1/namespaces/${namespace}/secrets`;
+  const body = { apiVersion: "v1", kind: "Secret", metadata: { name }, stringData: { token } };
+  if ((await request("POST", secrets, { ...auth, body })) === null) {
+    await request("PUT", `${secrets}/${name}`, { ...auth, body });
+  }
+  console.log(`stored a token in Secret ${name}`);
+}
+for (const [variable, token] of [
+  ["CANVAS_BROKER_SECRET", broker],
+  ["CANVAS_SNAPSHOTTER_SECRET", snapshotter],
+]) {
+  if (process.env[variable]) await storeSecret(process.env[variable], token);
+}

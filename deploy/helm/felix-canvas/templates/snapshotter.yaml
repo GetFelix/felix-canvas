@@ -1,0 +1,71 @@
+{{- $s := .Values.snapshotter -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "canvas.fullname" . }}-snapshotter
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: snapshotter
+spec:
+  replicas: 1
+  # Never two at once, even for a moment during a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "canvas.selector" (list . "snapshotter") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "canvas.selector" (list . "snapshotter") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      containers:
+        - name: snapshotter
+          image: {{ include "canvas.image" (list . $s.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "canvas.securityContext" . | nindent 12 }}
+          env:
+            {{- include "canvas.felixEnv" . | nindent 12 }}
+            - name: CANVAS_ROOMS
+              value: {{ .Values.rooms | quote }}
+            # Written by the seed Job. The pod waits for it on a first install.
+            - name: CANVAS_FELIX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canvas.snapshotterSecret" . }}
+                  key: token
+            {{- with $s.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8788
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml $s.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "canvas.caMount" . | nindent 12 }}
+      volumes:
+        {{- include "canvas.caVolume" . | nindent 8 }}
+      {{- with $s.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
