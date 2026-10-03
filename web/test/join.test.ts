@@ -3,11 +3,12 @@ import {
   apply,
   decodeOp,
   encodeOp,
+  encodePresence,
   encodeSnapshot,
   stateHash,
   type Op,
 } from "@felix-canvas/model";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { GatewayError, type GatewayEvent, type StreamName } from "../src/gateway.js";
 import { Session, type Gateway } from "../src/session.js";
@@ -68,6 +69,8 @@ class FakeGateway implements Gateway {
   onMembers: Gateway["onMembers"] = () => {};
   onMember: Gateway["onMember"] = () => {};
   readonly requests: string[];
+  /** While set, live records are lost on the way, as Felix drops them for a slow reader. */
+  dropping = false;
   #from: number | null = null;
   #counter = 0;
 
@@ -90,12 +93,12 @@ class FakeGateway implements Gateway {
       const tail = this.room.log.length;
       this.#from = from === "live" ? tail : from;
       this.onSubscribed("ops", this.#from, tail);
-      for (let offset = this.#from; offset < tail; offset++) this.deliver(offset);
+      for (let offset = this.#from; offset < tail; offset++) this.deliver(offset, false);
     });
   }
 
-  deliver(offset: number): void {
-    if (this.#from === null || offset < this.#from) return;
+  deliver(offset: number, live = true): void {
+    if (this.#from === null || offset < this.#from || (live && this.dropping)) return;
     const event: GatewayEvent = {
       stream: "ops",
       offset,
@@ -123,6 +126,10 @@ class FakeGateway implements Gateway {
   setMember(): void {}
   removeMember(): void {}
   watchMembers(): void {}
+
+  throttle(bitsPerSecond: number | null): void {
+    this.requests.push(`throttle ${bitsPerSecond}`);
+  }
 
   close(): void {
     this.#from = null;
@@ -235,5 +242,99 @@ describe("a refused join", () => {
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(session.refused).toBe("forbidden");
     expect(opened).toBe(1);
+  });
+});
+
+describe("falling behind", () => {
+  it("catches up from the last applied change when changes go missing", async () => {
+    const room = new Room();
+    room.write(5);
+    const { session, requests, connections } = join(room);
+    await until(() => session.caughtUp);
+
+    connections[0]!.dropping = true;
+    room.write(3);
+    connections[0]!.dropping = false;
+    requests.length = 0;
+    room.write(1);
+    expect(session.caughtUp).toBe(false);
+    expect(session.fellBehind).toBe(1);
+
+    await until(() => session.caughtUp);
+    expect(requests).toEqual(["subscribe 5"]);
+    expect(session.replica.next).toBe(9);
+    expect(session.fellBehind).toBe(1);
+    expect(stateHash(session.replica.confirmed)).toBe(room.hash());
+  });
+
+  it("learns from a peer when its newest changes were lost with nothing after them", async () => {
+    const room = new Room();
+    room.write(5);
+    const { session, requests, connections } = join(room);
+    await until(() => session.caughtUp);
+
+    connections[0]!.dropping = true;
+    room.write(3);
+    connections[0]!.dropping = false;
+    requests.length = 0;
+    const peer = (applied: number) =>
+      connections[0]!.onEvent({
+        stream: "presence",
+        offset: null,
+        skippedBefore: 0,
+        payload: encodePresence({
+          sid: other,
+          n: applied,
+          name: "Ana",
+          color: 0,
+          cursor: null,
+          selection: [],
+          applied,
+        }),
+      });
+    const now = performance.now();
+    const clock = vi.spyOn(performance, "now");
+    try {
+      clock.mockReturnValue(now);
+      peer(8);
+      clock.mockReturnValue(now + 1000);
+      peer(8);
+      expect(session.caughtUp).toBe(true);
+      clock.mockReturnValue(now + 3000);
+      peer(8);
+      expect(session.caughtUp).toBe(false);
+      expect(session.fellBehind).toBe(1);
+    } finally {
+      clock.mockRestore();
+    }
+
+    await until(() => session.caughtUp);
+    expect(requests).toEqual(["subscribe 5"]);
+    expect(stateHash(session.replica.confirmed)).toBe(room.hash());
+  });
+
+  it("does not count a gap while joining as falling behind", async () => {
+    const room = new Room();
+    room.write(10);
+    room.snapshotAt = 4;
+    const { session } = join(room);
+    await until(() => session.caughtUp);
+    expect(session.fellBehind).toBe(0);
+  });
+
+  it("keeps a reconnected session throttled", async () => {
+    const room = new Room();
+    const { session, requests, connections } = join(room);
+    await until(() => session.caughtUp);
+
+    session.setThrottled(true);
+    expect(requests.at(-1)).toBe("throttle 100000");
+    requests.length = 0;
+    connections[0]!.close();
+    await until(() => connections.length === 2 && session.caughtUp);
+    expect(requests[0]).toBe("throttle 100000");
+
+    session.setThrottled(false);
+    expect(requests.at(-1)).toBe("throttle null");
   });
 });

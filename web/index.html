@@ -56,6 +56,18 @@
         </p>
       </section>
 
+      <section id="behind" class="island notice" role="status" aria-live="polite" hidden>
+        <svg class="notice-icon gap-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2 12h5M17 12h5M10 12h1M13 12h1" />
+        </svg>
+        <i class="notice-icon check-icon" data-lucide="check" aria-hidden="true"></i>
+        <div class="notice-text">
+          <p id="behind-title" class="notice-title"></p>
+          <p id="behind-detail" class="mono"></p>
+        </div>
+        <div class="notice-progress" aria-hidden="true"><div id="behind-bar"></div></div>
+      </section>
+
       <header class="island room-island">
         <button
           id="menu-button"
@@ -201,10 +213,17 @@
             <dt>Canvas version</dt>
             <dd id="status-hash" class="mono"></dd>
           </div>
+          <div>
+            <dt><label for="throttle">Slow connection</label></dt>
+            <dd>
+              <button id="throttle" class="switch" role="switch" aria-checked="false"></button>
+            </dd>
+          </div>
         </dl>
         <p class="note">
           Times are the median and 99th percentile over the last ten seconds, from making a change
-          to seeing it confirmed.
+          to seeing it confirmed. Slow connection limits this tab to 100 kbit/s, so you can watch it
+          fall behind and catch up while everyone else stays live.
         </p>
       </section>
 

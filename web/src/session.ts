@@ -33,6 +33,7 @@ export type Gateway = Pick<
   | "setMember"
   | "removeMember"
   | "watchMembers"
+  | "throttle"
   | "close"
 >;
 import { Replica, type PendingEdit } from "./replica.js";
@@ -40,6 +41,10 @@ import { Replica, type PendingEdit } from "./replica.js";
 /** Seqs reserved from the counter at a time. Another block is fetched at half. */
 const SEQ_BLOCK = 1024;
 const RETRY_MS = [250, 500, 1000, 2000, 4000];
+/** How long a peer may be ahead before this session decides its newest changes were lost. */
+const PEER_AHEAD_GRACE_MS = 2000;
+/** The slow link the throttle switch stands in for. */
+export const THROTTLE_BITS_PER_SECOND = 100_000;
 
 export type Connection = "connecting" | "live" | "reconnecting";
 
@@ -100,6 +105,10 @@ export class Session {
   rebuilding = false;
   /** The log offset of the snapshot the session joined from, or `null` for none. */
   snapshotOffset: number | null = null;
+  /** How many times changes went missing after the session had caught up. */
+  fellBehind = 0;
+  /** Whether the gateway is told to feed this session as if over a slow link. */
+  throttled = false;
 
   /** Called when the replica's view may have changed. */
   onDocChange: () => void = () => {};
@@ -126,6 +135,10 @@ export class Session {
   #seqEnd = 0;
   #reserving = false;
   #resubscribing = false;
+  /** The offset the current ops subscription should deliver next. */
+  #expected = 0;
+  /** The oldest peer report of changes this session has not got, and when it came. */
+  #peerAhead: { applied: number; at: number } | null = null;
   #retries = 0;
   #presenceSent = { n: 0, at: 0 };
   #member: Member | null = null;
@@ -173,7 +186,8 @@ export class Session {
     if (!this.#client) return;
     const n = (this.#presenceSent.n + 1) % MAX_U32;
     this.#presenceSent = { n, at: performance.now() };
-    void this.#client.publish("presence", encodePresence({ ...presence, sid: this.sid, n }), false);
+    const message = { ...presence, sid: this.sid, n, applied: this.replica.next };
+    void this.#client.publish("presence", encodePresence(message), false);
   }
 
   /** Join the member list as `member`, or update the entry. It is refreshed until {@link leave}. */
@@ -188,6 +202,13 @@ export class Session {
     }
     this.#member = member;
     this.#writeMember();
+  }
+
+  /** Feed this session as if over a slow link, or at full speed again. */
+  setThrottled(throttled: boolean): void {
+    this.throttled = throttled;
+    this.#client?.throttle(throttled ? THROTTLE_BITS_PER_SECOND : null);
+    this.onStatusChange();
   }
 
   /** Leave the member list at once, for a tab that is closing. */
@@ -246,9 +267,10 @@ export class Session {
     client.onMember = (entry) => {
       if (this.members.apply(entry, performance.now())) this.onMembersChange();
     };
-    client.onSubscribed = (stream, _start, live) => {
+    client.onSubscribed = (stream, start, live) => {
       if (stream !== "ops") return;
       this.#resubscribing = false;
+      this.#expected = start ?? live ?? 0;
       this.#retries = 0;
       this.connection = "live";
       this.tail = Math.max(this.tail, (live ?? 0) - 1);
@@ -291,6 +313,7 @@ export class Session {
       this.#retry();
     };
 
+    if (this.throttled) client.throttle(THROTTLE_BITS_PER_SECOND);
     this.#subscribeOps(client);
     client.subscribe("presence", "live");
     client.watchMembers();
@@ -387,16 +410,49 @@ export class Session {
 
   #deliver(event: GatewayEvent): void {
     if (event.offset === null) return;
+    // Judged against the subscription, not the replica: records still held
+    // from before a resubscribe sit ahead of the replica without a new drop.
+    // Events that arrive while a resubscribe is pending are from the old one.
+    const dropped = !this.#resubscribing && event.offset - event.skippedBefore > this.#expected;
+    this.#expected = event.offset + 1;
     this.#confirmed(this.replica.deliver(event.offset, event.skippedBefore, event.payload));
     this.tail = Math.max(this.tail, event.offset);
-    // While the snapshot is in flight, everything arrives ahead of the replica.
-    if (this.replica.hasGap && !this.#awaitingSnapshot) this.#resubscribe();
+    // While the snapshot is in flight, it decides where to read from.
+    if (dropped && !this.#awaitingSnapshot) this.#lost();
     this.#checkCaughtUp();
     this.onDocChange();
   }
 
-  // A gap means the broker dropped records for this subscriber. Subscribing
-  // again from the next offset fetches them from the log.
+  #lost(): void {
+    if (this.caughtUp) {
+      this.caughtUp = false;
+      this.fellBehind++;
+      this.onStatusChange();
+    }
+    this.#resubscribe();
+  }
+
+  // Felix drops new records for a slow reader, so when the newest ones are
+  // dropped nothing arrives after them to show the gap. Peers say in their
+  // presence how far they have read; a claim still unmet after a grace period
+  // is that loss.
+  #peerApplied(applied: number | undefined): void {
+    const now = performance.now();
+    const ahead = this.#peerAhead;
+    if (ahead && this.replica.next >= ahead.applied) {
+      this.#peerAhead = null;
+    } else if (ahead && this.caughtUp && now - ahead.at > PEER_AHEAD_GRACE_MS) {
+      this.#peerAhead = null;
+      this.tail = Math.max(this.tail, ahead.applied - 1);
+      this.#lost();
+    }
+    if (applied !== undefined && applied > this.replica.next) {
+      this.#peerAhead ??= { applied, at: now };
+    }
+  }
+
+  // A gap means Felix dropped records for this subscriber because it read too
+  // slowly. Subscribing again from the next offset fetches them from the log.
   #resubscribe(): void {
     if (this.#resubscribing || !this.#client) return;
     this.#resubscribing = true;
@@ -425,6 +481,7 @@ export class Session {
       return;
     }
     if (presence.sid !== this.sid) {
+      this.#peerApplied(presence.applied);
       this.onPresence(presence);
     } else if (presence.n === this.#presenceSent.n) {
       this.cursorTrips.add(performance.now() - this.#presenceSent.at);

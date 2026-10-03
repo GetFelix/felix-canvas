@@ -26,6 +26,7 @@ describe("encodePresence and decodePresence", () => {
       cursor,
       { ...cursor, cursor: null, selection: [] },
       { ...cursor, gone: true },
+      { ...cursor, applied: 9222 },
     ]) {
       expect(decodePresence(encodePresence(presence))).toEqual(presence);
     }

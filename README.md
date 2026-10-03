@@ -22,7 +22,7 @@
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
 caches. You run it yourself: Felix, a stateless gateway, a snapshotter and the web app.
 
-**Status: M0 to M3, and M6, done.** Two browsers draw rectangles, ellipses, lines and pen
+**Status: M0 to M4, and M6, done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
 A snapshotter keeps the room's folded state in the Felix cache, so a browser
@@ -30,6 +30,8 @@ joining a busy room draws it at once and reads only the recent changes.
 Everyone sees everyone else's cursor and name, and a member list that drops a
 closed laptop on its own. People sign in with your identity provider, and each
 session can reach only the room it opened, enforced by Felix itself.
+A tab throttled to 100 kbit/s falls behind alone, says so, and catches up to
+the same canvas while everyone else stays live.
 Packaged images for self-hosting come in M8; until then, see
 [Running locally](#running-locally).
 
@@ -104,7 +106,7 @@ the milestone plan.
 | 1 | Two browsers, shapes, offset-ordered apply | The log is the document | Done |
 | 2 | Snapshotter and the join path | A cold client joins a busy room correctly | Done |
 | 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real | Done |
-| 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | |
+| 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | Done |
 | 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | |
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | Done |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
@@ -170,6 +172,23 @@ the same images:
 - A person keeps their colour and shows once in the list across a reload,
   because colours come from an id the browser keeps, not from the session.
 - The gateway lists, watches and expires member entries against a real broker.
+
+M4 shows that a slow client hurts only itself. What it proves, in CI against
+the same images:
+
+- The Sync panel's "Slow connection" switch has the gateway read that tab's
+  subscriptions at 100 kbit/s. Felix's bounded queue for that subscriber drops
+  new changes; the gateway drops nothing.
+- The browser treats a jump in offsets as a loss, shows "Your connection is
+  slow" with a count, reads the missing changes from the log, and ends with the
+  same state hash as the other browsers. A loss at the very end of a burst,
+  which no later change reveals, is caught from the applied count peers send
+  with their presence.
+- With one of three browsers throttled under 300 changes a second, the others'
+  save time stays under 50 ms at the median and within 1.5 times plus 10 ms of
+  what it was without the throttled browser.
+- A gateway integration test shows a throttled connection seeing a gap while
+  another connection on the same gateway receives every record.
 
 M6 puts each session in one room and lets Felix keep it there. What it proves,
 in CI against the same images:

@@ -1,5 +1,6 @@
 import { stateHash } from "@felix-canvas/model";
 import {
+  Check,
   Circle,
   ExternalLink,
   EyeOff,
@@ -34,6 +35,8 @@ const SAVING_AFTER_MS = 300;
 const RECONNECT_GRACE_MS = 800;
 /** How long "Up to date" shows after catching up. */
 const CONVERGED_MS = 2000;
+/** How long the notice stays after catching up from a slow connection. */
+const CAUGHT_UP_NOTICE_MS = 3000;
 const MAX_AVATARS = 4;
 const TOOLTIP_DELAY_MS = 500;
 /** Joins and leaves are announced only in rooms smaller than this. */
@@ -82,6 +85,9 @@ export class Chrome {
   /** The replica's position when catching up began, for the progress bars. */
   #catchUpFrom: number | null = null;
   #convergedAt: number | null = null;
+  #fellBehindSeen = 0;
+  /** The slow-connection notice: catching up, or caught up with the version reached. */
+  #notice: { version: string | null; until: number } | null = null;
   #toastTimer = 0;
   #account = { who: "", room: "" };
 
@@ -92,6 +98,7 @@ export class Chrome {
     this.#name = name;
     createIcons({
       icons: {
+        Check,
         Circle,
         ExternalLink,
         EyeOff,
@@ -217,6 +224,7 @@ export class Chrome {
       this.#convergedAt = now;
     }
     const progress = this.#progress();
+    this.#renderNotice(progress, now);
 
     const card = !session.hasFrame || session.rebuilding;
     element("joining").hidden = !card;
@@ -268,6 +276,43 @@ export class Chrome {
     };
   }
 
+  /**
+   * Changes went missing because this tab read too slowly. Say so plainly,
+   * count the catch-up, and end on the version reached, which another
+   * window's Sync panel can be compared against.
+   */
+  #renderNotice(progress: { left: number; fraction: number } | null, now: number): void {
+    const session = this.#session;
+    if (session.fellBehind !== this.#fellBehindSeen) {
+      this.#fellBehindSeen = session.fellBehind;
+      this.#notice = { version: null, until: Infinity };
+    }
+    if (this.#notice?.version === null && session.caughtUp) {
+      this.#notice = {
+        version: stateHash(session.replica.confirmed).slice(0, 4),
+        until: now + CAUGHT_UP_NOTICE_MS,
+      };
+    }
+    if (this.#notice && now > this.#notice.until) this.#notice = null;
+
+    const notice = this.#notice;
+    const box = element("behind");
+    box.hidden = notice === null;
+    if (!notice) return;
+    box.dataset.state = notice.version === null ? "behind" : "caught-up";
+    if (notice.version === null) {
+      element("behind-title").textContent = "Your connection is slow";
+      element("behind-detail").textContent = progress
+        ? `Catching up on ${progress.left.toLocaleString()} changes`
+        : "Catching up";
+      element("behind-bar").style.width = `${(progress?.fraction ?? 0) * 100}%`;
+    } else {
+      element("behind-title").textContent = "Back in sync";
+      element("behind-detail").textContent = `Up to date · version ${notice.version}`;
+      element("behind-bar").style.width = "100%";
+    }
+  }
+
   #renderJoining(progress: { left: number; fraction: number } | null): void {
     const session = this.#session;
     const room = session.room?.room;
@@ -308,6 +353,7 @@ export class Chrome {
     element("status-server").textContent = this.#metrics ? formatMs(this.#metrics.felix) : "none";
     element("status-hash").textContent = stateHash(session.replica.confirmed);
     element("status-people").textContent = this.#people().length.toLocaleString();
+    element("throttle").setAttribute("aria-checked", String(session.throttled));
 
     const samples = edit.latest(60);
     const max = Math.max(1, ...samples);
@@ -515,6 +561,10 @@ export class Chrome {
         poll = window.setInterval(() => void this.#fetchMetrics(), 1000);
         this.#renderStatus();
       }
+    });
+    element("throttle").addEventListener("click", () => {
+      this.#session.setThrottled(!this.#session.throttled);
+      this.#renderStatus();
     });
   }
 
