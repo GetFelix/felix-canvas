@@ -1,10 +1,16 @@
 import {
   EMPTY_DOC,
   apply,
+  applyInPlace,
   decodeOp,
+  draft,
+  freeze,
+  mergeTextUpdates,
   type Doc,
+  type DraftDoc,
   type FieldValue,
   type Op,
+  type OpKind,
 } from "@felix-canvas/model";
 
 // Pending edits are overlaid at offsets past anything a log reaches, in the
@@ -26,7 +32,9 @@ interface Buffered {
 
 /**
  * A room's replica. `confirmed` is the fold of the op log in offset order;
- * the view adds this session's pending edits on top.
+ * the view adds this session's pending edits on top. The fold only moves
+ * forward, so it runs in place, with live documents for the text bodies it
+ * changes, and is frozen when someone reads it.
  *
  * Records are applied strictly in offset order, whatever order they arrive
  * in: one ahead of the next expected offset waits, and one already applied is
@@ -37,7 +45,8 @@ interface Buffered {
  */
 export class Replica {
   readonly sid: bigint;
-  #confirmed: Doc = EMPTY_DOC;
+  #fold: DraftDoc = draft(EMPTY_DOC);
+  #confirmed: Doc | null = EMPTY_DOC;
   #next = 0;
   readonly #ahead = new Map<number, Buffered>();
   readonly #pending: PendingEdit[] = [];
@@ -51,7 +60,7 @@ export class Replica {
 
   /** The state the log alone gives, up to {@link next}. */
   get confirmed(): Doc {
-    return this.#confirmed;
+    return (this.#confirmed ??= freeze(this.#fold));
   }
 
   /** The next offset to apply: everything below it has been. */
@@ -68,13 +77,29 @@ export class Replica {
     return this.#pending;
   }
 
-  /** What to draw: the confirmed state with pending edits on top. */
+  /**
+   * What to draw: the confirmed state with pending edits on top. A body's
+   * pending text ops are merged and applied once, where the first of them is.
+   */
   view(): Doc {
-    this.#view ??= this.#pending.reduce(
-      (doc, { op }, i) => apply(doc, op, LOCAL_OFFSET + i),
-      this.#confirmed,
-    );
-    return this.#view;
+    if (this.#view) return this.#view;
+    const texts = new Map<bigint, Uint8Array[]>();
+    for (const { op } of this.#pending) {
+      if (op.kind === "text") texts.set(op.shape, [...(texts.get(op.shape) ?? []), textOf(op)]);
+    }
+    let doc = this.confirmed;
+    for (const [i, { op }] of this.#pending.entries()) {
+      if (op.kind !== "text") {
+        doc = apply(doc, op, LOCAL_OFFSET + i);
+        continue;
+      }
+      const updates = texts.get(op.shape);
+      texts.delete(op.shape);
+      if (updates) {
+        doc = apply(doc, { ...op, fields: { y: mergeTextUpdates(updates) } }, LOCAL_OFFSET + i);
+      }
+    }
+    return (this.#view = doc);
   }
 
   /** Show a local edit at once. It stays pending until the log delivers it. */
@@ -84,16 +109,25 @@ export class Replica {
   }
 
   /**
-   * Fold `fields` into the newest pending edit if it is an unsent patch of
-   * `shape`, so a drag while disconnected queues one op rather than one per
-   * frame. Returns whether it did.
+   * Fold an edit into one not sent yet, so a drag while disconnected queues
+   * one op rather than one per frame, and typing one op per body. A patch
+   * joins the newest pending edit if that is an unsent patch of `shape`; text
+   * joins the newest unsent text op for `shape`, which is safe however many
+   * edits to other shapes came after it, since only this body's text depends
+   * on it. Returns whether it did.
    */
-  amend(shape: bigint, fields: Record<string, FieldValue>): boolean {
-    const last = this.#pending.at(-1);
-    if (!last || last.sentAt !== null || last.op.kind !== "patch" || last.op.shape !== shape) {
-      return false;
+  amend(kind: OpKind, shape: bigint, fields: Record<string, FieldValue>): boolean {
+    const unsent = (edit: PendingEdit) => edit.sentAt === null && edit.op.shape === shape;
+    if (kind === "text") {
+      const into = this.#pending.findLast((edit) => unsent(edit) && edit.op.kind === "text");
+      if (!into) return false;
+      const y = mergeTextUpdates([textOf(into.op), fields.y as Uint8Array]);
+      into.op = { ...into.op, fields: { y } };
+    } else {
+      const last = this.#pending.at(-1);
+      if (kind !== "patch" || !last || !unsent(last) || last.op.kind !== "patch") return false;
+      last.op = { ...last.op, fields: { ...last.op.fields, ...fields } };
     }
-    last.op = { ...last.op, fields: { ...last.op.fields, ...fields } };
     this.#view = undefined;
     return true;
   }
@@ -115,6 +149,7 @@ export class Replica {
    * any that buffered records confirm.
    */
   reset(doc: Doc, next: number): PendingEdit[] {
+    this.#fold = draft(doc);
     this.#confirmed = doc;
     this.#next = next;
     this.#view = undefined;
@@ -140,7 +175,8 @@ export class Replica {
         // Not an op. The offset still counts as applied.
         continue;
       }
-      this.#confirmed = apply(this.#confirmed, op, at);
+      applyInPlace(this.#fold, op, at);
+      this.#confirmed = null;
       this.#view = undefined;
       this.onApply(op);
       if (op.sid === this.sid) {
@@ -150,4 +186,8 @@ export class Replica {
     }
     return confirmed;
   }
+}
+
+function textOf(op: Op): Uint8Array {
+  return op.fields.y as Uint8Array;
 }

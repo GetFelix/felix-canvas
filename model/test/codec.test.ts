@@ -31,7 +31,9 @@ describe("encodeOp and decodeOp", () => {
       },
       move,
       { ...move, kind: "delete", fields: {} },
+      { ...move, kind: "text", fields: { y: new Uint8Array([0, 1, 2]) } },
     ];
+    expect(encodeOp(ops[3]!)).toContain(3);
     for (const op of ops) {
       expect(decodeOp(encodeOp(op))).toEqual(op);
     }
@@ -96,7 +98,7 @@ describe("encodeOp and decodeOp", () => {
     const malformed = [
       new Uint8Array([0xc1]),
       encode([1, 2, 3]),
-      encode({ ...valid, kind: 3 }),
+      encode({ ...valid, kind: 4 }),
       encode({ ...valid, kind: "patch" }),
       encode({ ...valid, shape: new Uint8Array(15) }),
       encode({ ...valid, seq: -1 }),

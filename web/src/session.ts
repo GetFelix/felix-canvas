@@ -187,17 +187,23 @@ export class Session {
   }
 
   /**
-   * Make an edit: shown at once, then published. Returns `false` when it was
-   * refused because no sequence number is free, which only happens after
-   * hundreds of edits without a connection.
+   * Make an edit: shown at once, then published. `at` is when it was made,
+   * which for typing is the first keystroke the op carries. Returns `false`
+   * when it was refused because no sequence number is free, which only
+   * happens after hundreds of edits without a connection.
    */
-  submit(kind: OpKind, shape: bigint, fields: Record<string, FieldValue>): boolean {
-    if (kind === "patch" && this.replica.amend(shape, fields)) {
+  submit(
+    kind: OpKind,
+    shape: bigint,
+    fields: Record<string, FieldValue>,
+    at = Date.now(),
+  ): boolean {
+    if (this.replica.amend(kind, shape, fields)) {
       this.onDocChange();
       return true;
     }
     if (this.#seq >= this.#seqEnd) return false;
-    this.replica.edit({ sid: this.sid, seq: this.#seq++, shape, kind, fields, at: Date.now() });
+    this.replica.edit({ sid: this.sid, seq: this.#seq++, shape, kind, fields, at });
     if (this.#client) this.#send(this.replica.pending.at(-1)!);
     void this.#reserveSeqs();
     this.onDocChange();
