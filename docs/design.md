@@ -418,6 +418,7 @@ default batching versus 190 µs under the latency profile.
 | 5 | Time scrubber over the op log | Demonstration 4 | 1 week |
 | 6 | Token exchange with per-room narrowing, real IdP | Multi-tenancy enforced by the broker | 1 week |
 | 7 | 500-viewer stress with `felix-loadgen`, kill the owning broker | Demonstrations 1 and 5 | 1 week |
+| 8 | Release images, a compose install, a configurable IdP, a Helm chart | Anyone can self-host it | 1 week |
 
 **M0 is the one to start first**, and it is worth building even if the canvas is
 never finished: a WebSocket bridge to Felix is the missing piece for every
