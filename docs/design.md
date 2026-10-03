@@ -14,6 +14,7 @@ How it looks and feels is in the UX and visual design brief, [ux.md](ux.md).
 **In scope**
 
 - Freeform shapes on an infinite canvas: rectangle, ellipse, line, pen stroke, text, image placeholder
+- Rich text in text shapes and inside rectangles and ellipses, with two people able to type in one block at once (see Text editing)
 - Live cursors, selections and presence for everyone in a room
 - Durable document history with replay and a time scrubber
 - Multi-tenant rooms behind the user's own IdP
@@ -21,7 +22,7 @@ How it looks and feels is in the UX and visual design brief, [ux.md](ux.md).
 
 **Out of scope**
 
-- Rich text editing inside shapes beyond a single-line label: the conflict story there is a research project, not a Felix story
+- Text formatting beyond the first set in Text editing: no tables, code blocks, images or comments inside text, and no fonts other than Inter
 - Offline-first editing with weeks of divergence; the design assumes a client reconnects within the retention window
 - Permissions finer than room-level (see Authorization for why, and what it would cost)
 - Anything that needs a second datastore. If a feature cannot be expressed in streams, caches and counters, it is out by definition
@@ -117,7 +118,7 @@ structure and one order.
 - **A browser cannot speak QUIC to Felix**, so this design pays for a gateway hop that anyone using `y-websocket` does not.
 - **Felix is not a database.** No object ACLs, no queries, no transactions, so room membership has to live in Felix RBAC rather than in a list of its own (see Authorization).
 - **One room is one shard is one owning broker**, the same single-owner constraint as a per-document server process. The difference is that failover is machinery Felix already has rather than something this application invents.
-- **Delivery is at-least-once**, so clients must dedupe; a CRDT stack gets idempotence from the merge function for free.
+- **Delivery is at-least-once**, so clients must dedupe; a CRDT stack gets idempotence from the merge function for free. Text is the one place this design uses a CRDT too, inside ops on the log.
 - **Offline editing for weeks is out.** CRDTs win that outright, and this design does not compete for it.
 - **Replay is bounded by retention.** A history that must reach back further than the log needs checkpoints the log alone does not provide (see How far back the scrubber reaches).
 
@@ -193,6 +194,10 @@ orders records within a shard, not across them. A canvas wants one total order
 per room, so a room maps to a single shard and therefore a single owning broker.
 Rooms spread across the cluster by name; one room does not.
 
+Text adds no primitive. A text body's changes are ops on `canvas.ops.<room>`
+like any other edit, and its state travels in the snapshot with the shapes
+(see Text editing).
+
 The snapshot value is a single record holding both the serialized shape set and
 the log offset it was built from. Keeping them in one value is the whole trick
 behind the join path: a reader cannot observe a snapshot without also learning
@@ -218,13 +223,18 @@ explicit that it offers no exactly-once, so the client must tolerate a repeat.
 **Conflict resolution: last-writer-wins per shape field, keyed on log offset.**
 Each op names a shape id and a sparse set of fields. Concurrent edits to
 different fields of one shape both survive; concurrent edits to the same field
-resolve to the higher offset. No vector clocks and no CRDT library.
+resolve to the higher offset. No vector clocks.
 
-That choice is defensible because a canvas has no text-insertion problem:
-shapes are a map, not a sequence, and maps under LWW converge trivially. The two
-places it shows its limits are z-order, which uses fractional indexing between
-neighbours, and freehand strokes, which are immutable once finished and so never
-conflict at all.
+That choice is defensible because shapes are a map, not a sequence, and maps
+under LWW converge trivially. The places it shows its limits are z-order, which
+uses fractional indexing between neighbours, freehand strokes, which are
+immutable once finished and so never conflict at all, and text.
+
+Text is a sequence, and LWW would throw away one of two people typing in the
+same paragraph. So a text body is a Yjs document, and its changes are `text`
+ops whose payload is a Yjs update. The log still orders them and the fold still
+applies them in offset order; Yjs only decides how concurrent inserts and
+formatting merge. Text editing below has the details.
 
 Op shape, MessagePack-encoded, roughly 60–120 bytes for a typical move:
 
@@ -233,8 +243,8 @@ Op shape, MessagePack-encoded, roughly 60–120 bytes for a typical move:
 | `sid` | u64 | Session that authored the op, for dedupe and echo suppression |
 | `seq` | u32 | Per-session counter, monotonic, for dedupe |
 | `shape` | u128 | Target shape id, client-generated |
-| `kind` | enum | `create` / `patch` / `delete` |
-| `fields` | map | Only the changed fields |
+| `kind` | enum | `create` / `patch` / `delete` / `text` |
+| `fields` | map | Only the changed fields; for `text`, the Yjs update |
 | `t` | u64, optional | When the author made the edit, for the history timeline only |
 
 Echo suppression matters more than it looks. A client applies its own op
@@ -245,6 +255,280 @@ which is Figma's rule. When its own op comes back, matched on `(sid, seq)`, the
 op leaves the pending list and enters the fold at its offset, which is how the
 replica learns its own position in the log. The value on screen does not change,
 because every write that reached the log before it had a lower offset.
+
+## Text editing
+
+Text shapes, rectangles and ellipses can hold a body of rich text. Two people
+can type in the same paragraph at once and both edits survive. The body is
+still part of the room's fold, so snapshots, the join path, gap recovery and
+the scrubber cover it with no second path.
+
+### What the first version formats
+
+| Kind | Options | Stored as |
+|---|---|---|
+| Inline style | Bold, italic, underline | Yjs marks `b`, `i`, `u` |
+| Link | An `http`, `https` or `mailto` address | Mark `a` with the address |
+| Font size | Small, Medium, Large, Huge: 12, 16, 20 and 28 canvas units | Mark `size` with the step name; Medium when absent |
+| Colour | Ink, Muted, and the eight colours of the presence palette; never the cyan accent | Mark `color` with the colour's name; Ink when absent |
+| Block | Paragraph, heading 1 to 3, bulleted list, numbered list, nested to three levels | Element names `p`, `h`, `ul`, `ol`, `li` |
+
+Colours are stored by name, not value, so dark mode can shift their lightness
+as the UX brief asks, and so a body can never carry a colour outside the
+palette. The schema lives in `model/` as plain constants. The editor builds its
+ProseMirror schema from them, and the fold uses them to decide what counts as
+content.
+
+### The editor
+
+The editor is ProseMirror with `y-prosemirror`.
+
+| Option | For | Against |
+|---|---|---|
+| ProseMirror + `y-prosemirror` | Plain TypeScript and DOM, no framework. The schema is ours, so it holds exactly the formats above. `y-prosemirror` is the Yjs author's own binding and the most used one | More assembly: keymaps, toolbar commands and the caret plugin are ours to write |
+| Tiptap | Ready-made extensions for every format above | A layer over ProseMirror that this design does not need. Its collaboration and caret extensions assume a Yjs provider and awareness, which this design replaces with the log and the presence stream |
+| Lexical | Fast, MIT, good IME handling | Its Yjs binding and examples centre on React and on a provider that owns the document. Using it without either means working against the library |
+| Plain `contenteditable` | No dependency | Selection, IME, paste and undo across browsers, plus a Yjs binding of our own. That is the research project the old scope ruled out |
+
+CONTRIBUTING.md rules out a UI framework in `web/`, which settles most of it.
+ProseMirror is framework-free, and the schema being ours is what keeps the
+formatting set small and the derived content in the fold well defined.
+
+### Editing on a canvas
+
+The canvas draws every body itself. A body is in the DOM only while someone in
+this tab is editing it.
+
+- Double-click a text shape, rectangle or ellipse, press Enter with one selected, or click or drag with the text tool, and the editor opens over the shape: a ProseMirror view in an absolutely positioned element, scaled with the camera by a CSS transform, using the same font, size and line height as the canvas.
+- While the editor is open the renderer skips that body, so it is never drawn twice. Panning and zooming move the editor with the canvas.
+- Esc, a click outside the shape or choosing another tool closes it, and the canvas draws the body again.
+- A tab edits one body at a time.
+
+A text shape's width is a field like any other. Its height follows its
+content: every replica computes it from the same layout, so it is not stored.
+In a rectangle or ellipse the text wraps to the box less a padding of 8 canvas
+units, is centred vertically, and runs past the box when it does not fit.
+
+### Rich text on the canvas
+
+Viewers who are not editing see a body drawn by `web/src/textlayout.ts`, a
+small layout engine for this schema:
+
+1. Walk the body's derived content into blocks and runs, each run with one font, size, colour and decoration.
+2. Break lines greedily at the word boundaries `Intl.Segmenter` gives, measuring with `measureText` in the run's font. A word wider than the line breaks by character.
+3. Draw runs with `fillText`, underlines and link underlines as thin rectangles, list markers in the gutter.
+
+Layout happens in canvas units at the body's own size, and the camera transform
+scales it, so zooming does not lay out again. Layouts are cached per body,
+keyed by its content and width; typing lays out one body. Measuring waits for
+Inter to load, and a font load clears the cache.
+
+The editor and the canvas must wrap the same way, or text jumps when the
+editor opens. The editor's CSS matches the layout's rules (Inter, the same line
+heights, `white-space: pre-wrap`, `overflow-wrap: anywhere`, kerning on in
+both), and an end-to-end test compares the two line by line on a fixed set of
+bodies. Mixed-direction text is laid out run by run, without full
+bidirectional reordering. That is a known limit of the first version.
+
+Two other ways were rejected. Drawing the DOM into the canvas through an SVG
+`foreignObject` is asynchronous, slow for every frame, needs fonts embedded,
+and behaves differently across browsers. Keeping a DOM element over every body
+makes thousands of transformed elements on a busy board, and they cannot
+interleave with canvas shapes in z-order.
+
+### One Yjs document per body
+
+Each body is its own `Y.Doc` with one root `Y.XmlFragment` named `body`.
+
+- **Root types never conflict.** In one document per room, bodies would be nested types under a map, and two people creating the same body at once would each make one; the map keeps one and the other's text is lost. A root type with a fixed name merges.
+- **Deleting a shape deletes its text.** A room document keeps every root type it ever had. A per-body document leaves the next snapshot with the shape.
+- **An op already names its shape**, so the fold touches one small document per op, and history copies only the bodies that changed.
+
+A body comes into being with the first `text` op on a shape that exists. There
+is no separate create.
+
+### Text ops in the log
+
+A text op is an ordinary op with kind `text` (wire value 3) and one field, `y`:
+a Yjs update in Yjs's version 2 encoding, which is the smaller one for typing.
+Typing a few characters makes an op of about 100 bytes, 16 of them the shape id.
+
+- **Dedupe is unchanged.** The fold checks `(sid, seq)` before it looks at the kind, so a retried text op is dropped like any other. Yjs updates are also idempotent, so a repeat that got past the check would change nothing.
+- **Ignored like a patch.** A text op on a shape that does not exist, on a line or a stroke, or whose update does not decode, changes nothing. A delete stays final.
+- **Bounded.** An op whose update is over 64 KB is ignored. The fold and the editor apply the same rule, so every replica agrees on what a body holds. The editor refuses a paste that would take a body past 10,000 characters, so an honest client never comes near the bound.
+- **Client ids.** A Yjs client id is a 32-bit hash of the session id, so a body's state vector gains one entry per session that edits it, not one per editing turn.
+
+The log order is what makes this safe. An author's update depends only on text
+it had seen, which reached it through the log at lower offsets, and on its own
+earlier ops, which reach the log first because a session's ops land in `seq`
+order. Applied in offset order, an update's dependencies are always there
+already. A body left with Yjs pending structures after an op means a record was
+skipped, and every replica treats that as a broken fold to recover from, not as
+something to wait out.
+
+### The fold
+
+`Doc` gains `texts`, a map from shape id to an immutable `TextBody`: the
+body's Yjs state, encoded, and its derived content, worked out on first use.
+
+- `apply` makes a new body from the old state plus the update. That costs time in proportion to the body, which is fine at the rate one person's ops arrive.
+- `applyInPlace` keeps one live `Y.Doc` per body it has touched and applies updates to it directly. Copying out, at a kept history state or an answer, re-encodes only the bodies that changed. This is the same split as for shapes, for the same reason.
+- The live replica's confirmed state only moves forward, so it keeps live documents for the bodies it sees change rather than decoding one per delivered op.
+- A delete removes the shape's body with it.
+
+Derived content is what the renderer draws and the hash covers: blocks, each
+with its type and attributes and a list of runs of text with their marks.
+`model/` works it out by walking the fragment with the schema constants, with
+no ProseMirror and no DOM, so the snapshotter on Node gets the same answer as a
+browser. Anything outside the schema, such as an unknown element, an unknown
+mark, a colour not in the palette or a link to another scheme, is left out. A
+client that writes such things gets nothing on anyone's screen and nothing in
+the hash.
+
+### Pending text and echo
+
+While the editor is open it works on its own `Y.Doc`: the confirmed body, plus
+this session's text ops the log has not delivered back yet, plus every text op
+delivered for that body while it is open. Yjs merges are commutative and
+idempotent, so this session's own echo changes nothing and other people's text
+arrives under the caret without moving it.
+
+The replica's view merges this session's pending text ops for a body into one
+update and applies it on top of the confirmed body, so after the editor closes
+the canvas still shows text the log has not confirmed. The confirmed state, and
+the version in the Sync panel, cover only the log. Text needs no echo rule like
+Figma's: an insert never overwrites anything, so there is no field to protect.
+
+Undo inside the editor uses `y-prosemirror`'s undo plugin, which tracks only
+this session's changes. Undoing writes new updates to the log, the same rule as
+undo everywhere else in the design: your own changes only, appended, never
+rewritten.
+
+### Coalescing keystrokes
+
+The editor's document produces an update per keystroke. Those collect in a
+buffer and go out as one op, merged with `Y.mergeUpdatesV2`:
+
+- 150 ms after the first unsent change, so steady typing sends at most about 7 ops a second per person;
+- at once when the editor closes, so leaving a shape never leaves text unsent;
+- at once when the buffer passes 8 KB, which in practice is a paste.
+
+While disconnected, a new text op merges into the newest unsent one for the
+same body, as unsent drags already do, so an hour offline sends one op per
+body touched, not thousands.
+
+The cost on the log is small. A drag publishes on every pointer move; typing
+publishes 7 ops a second at most. An hour of one person typing steadily is about
+15,000 ops and 1.5 MB of log. The snapshot grows much less: a body's Yjs state
+is roughly its text plus its formatting, since deleted text is
+garbage-collected out of the fold's documents and runs typed by one person are
+stored as one item. A page of text is a few kilobytes.
+
+Another person sees typing within the flush window plus the usual edit path,
+which sets the text target below at 250 ms rather than the 50 ms for shapes.
+
+### Text in the state hash
+
+Two replicas can hold the same text in different Yjs bytes, because the
+encoding depends on history and client ids. So the hash never covers Yjs
+bytes. `stateHash` adds a `body` entry to each shape that has text: its
+derived content with adjacent runs of identical marks merged, encoded with the
+same sorted-key MessagePack as the shape fields. Same content means the same
+hash, which is the comparison demonstration 3 needs: same picture, not same
+history.
+
+### Snapshots
+
+The snapshot format goes to version 2 and adds `texts`: one `[id, state]` pair
+per body, where `state` is `Y.encodeStateAsUpdateV2` of its document. The
+decoder still reads version 1, which has no text. The snapshotter folds in
+place and encodes bodies only when it writes.
+
+Before writing, the snapshotter checks that no body has pending Yjs
+structures. If one does, a record was skipped (see the snapshotter startup wait
+below), so it writes nothing, logs it, and starts again from the stored
+snapshot; the records it had not acknowledged come back.
+
+A joining browser decodes each body once, which costs time in proportion to the
+text in the room. A snapshot must stay under the broker's 16 MiB frame limit;
+the per-body bound leaves room for hundreds of full bodies, and the snapshotter
+logs a warning when a snapshot passes 4 MiB.
+
+### Replay and the scrubber
+
+History works as it does for shapes. Kept states every 256 changes hold frozen
+bodies, and freezing re-encodes only the bodies that changed since the last
+kept state. A seek starts from a kept state; the bodies touched by the at most
+255 ops it folds are decoded once from their kept state, updated and derived
+again, and every other body shares the kept content. A seek therefore costs in
+proportion to the bodies it touches, not to the room.
+
+The targets for history stay as they are, with text in the mix: on a
+10,000-change room where half the changes are text ops spread over 50 bodies,
+loading stays under 0.5 ms per change and the slowest seek under 50 ms.
+
+Yjs has its own snapshots for viewing a document's past, and they were
+rejected. They need garbage collection off in every replica, which keeps every
+deleted character forever, and they cover only text, so the scrubber would
+still need the fold for shapes.
+
+### Carets of others
+
+A presence message gains an optional `txt`: the shape id, and the anchor and
+head of the selection as encoded Yjs relative positions, about 10 bytes each.
+A relative position points at a character rather than an index, so it stays put
+while other people type before it. It is sent while the editor is open, with
+the same once-a-frame pacing as the cursor, and left out otherwise.
+
+A viewer resolves the positions against its own copy of the body. When it
+cannot, because the text the caret points into has not reached it yet, it keeps
+the last position until it can. Inside an open editor, carets and selections
+are ProseMirror decorations from a small plugin of our own; `y-prosemirror`'s
+caret plugin expects a `y-protocols` awareness object, which the presence
+stream replaces. On the canvas, the renderer draws them from the body's layout.
+
+### Gap recovery, access and the snapshotter wait
+
+**Gap recovery.** Text ops are records like any other, so a drop is still a gap
+in offsets and recovery reads the missed records in order, which keeps every
+update's dependencies in place. A rejoin from the snapshot replaces the
+confirmed state. An open editor merges the snapshot's body into its own
+document, which is idempotent, so the caret and the unsent text stay. Pending
+text ops the snapshot already holds are confirmed by the usual `seq` rule.
+Tail loss is still caught by peers' applied counts.
+
+**Per-room access.** Text needs no new resource: its ops are on the op stream
+and its carets on the presence stream, both already in the narrowed token. A
+room member can still write anything into a body, so content is treated as
+data. The editor builds DOM only through the schema, pasted HTML is parsed
+against the schema and everything else dropped, links are limited to `http`,
+`https` and `mailto`, and they open with `noopener`.
+
+**The snapshotter startup wait.** Until
+[felix#962](https://github.com/gabloe/felix/issues/962) is fixed, the
+snapshotter waits 30 seconds on startup so its predecessor's claims come back
+before newer records. Text raises the stakes of getting that wrong. A record
+the snapshotter skips loses one LWW write for shapes, but for text it strands
+every later update that author made to that body. The wait stays, and the
+pending-structure check above turns a skip into a retry rather than a wrong
+snapshot. During the wait, joins read more of the log, which at typing rates
+is a few hundred ops.
+
+### Dependencies
+
+Every new dependency is MIT licensed.
+
+| Package | Used by | License |
+|---|---|---|
+| `yjs` 13.6, with its dependency `lib0` | `model/`, `web/`, `snapshotter/` | MIT |
+| `y-prosemirror` 1.x | `web/` | MIT |
+| `y-protocols` | `web/`, only because `y-prosemirror` names it as a peer dependency | MIT |
+| `prosemirror-model`, `-state`, `-view`, `-transform`, `-commands`, `-keymap`, `-schema-list`, `-inputrules`, with `orderedmap` and `w3c-keyname` | `web/` | MIT |
+
+`model/` takes only `yjs`, so the snapshotter carries no editor code. Yjs 14
+(published as `@y/y`) and `y-prosemirror` 2 are in pre-release as of October
+2026. This design pins the stable lines and moves once those are released,
+after checking that their update encoding reads what the log already holds.
 
 ## Join and snapshot
 
@@ -290,8 +574,8 @@ losing it. Rewriting the same key is idempotent, which makes at-least-once
 redelivery harmless here.
 
 The value is one MessagePack record: the shapes with the offset that last wrote
-each field, the highest applied `seq` per session, and the offset `N` it was
-built through. The seqs travel with the shapes so that a retried op landing
+each field, each text body's Yjs state, the highest applied `seq` per session,
+and the offset `N` it was built through. The seqs travel with the shapes so that a retried op landing
 after the snapshot is still recognised as a repeat. The snapshotter starts from
 the stored snapshot, folds records in offset order and skips any at or below
 the last one it folded, which is what a redelivery always is.
@@ -475,7 +759,9 @@ seek there takes about 2 ms; loading the history takes about 1.3 seconds per
 Folding in place matters here. The live fold copies a shape map per op so that
 every state it hands out stays valid; over a whole history that copying cost
 3.6 seconds for 10,000 ops on 300 shapes. History folds into one working
-state and copies only at kept states and answers.
+state and copies only at kept states and answers. Text bodies follow the same
+rule: live Yjs documents while folding, re-encoded only when a kept state or an
+answer is copied out (see Replay and the scrubber).
 
 **Times come from the ops.** Felix stores a write time with every record but
 does not deliver it, so each op carries `t`, the time its author made it by the
@@ -521,6 +807,8 @@ works and a deployment wants short op retention with long history.
 | Publish unacked at failover | May have committed or not | Retries with the same `(sid, seq)`; dedupe absorbs the double | Nothing |
 | Snapshotter dies | Redelivers what it had not acknowledged once it restarts | Unaffected; joins replay further from the log | Slightly slower joins |
 | Cache watch falls behind | Ends the watch with `Lagged { resume_from }` | Re-watch from the named offset | Nothing |
+| Snapshotter skips a text op | Nothing; the skip is the snapshotter's | Finds a body with pending Yjs structures, writes nothing, restarts from the stored snapshot | Slightly slower joins |
+| Old client meets a text op | Delivers it like any record | Cannot decode it, counts the offset as applied, and its text and version drift from everyone else's | Missing text in that tab until it reloads the new version |
 
 **Every recovery path is the join path.** A client that has fallen behind, been
 disconnected, been trimmed, or been failed over does the same thing: re-subscribe
@@ -572,8 +860,14 @@ Set by human perception, not by Felix's ceilings.
 |---|---|---|
 | Local echo (input to own pixel) | < 16 ms, one frame | Client-side frame timing, no network |
 | Edit visible to another client, same region | < 50 ms p50, < 150 ms p99 | Timestamped op round trip, clocks on one host |
+| Typed text visible to another client | < 250 ms p50, < 400 ms p99 | Keystroke to the character on another screen, including the 150 ms flush window |
+| Keystroke to own character in the editor | < 16 ms, one frame | Client-side frame timing |
+| Text ops per typing person | ≤ 7 per second | Op count over a scripted typing run |
 | Cursor visible to another client | < 40 ms p50 | Same, on the presence stream |
-| Join a 10,000-op room | < 500 ms to first correct frame | Snapshot fetch + tail replay, cold client |
+| Join a 10,000-op room | < 500 ms to first correct frame | Snapshot fetch + tail replay, cold client; also with half the ops text across 50 bodies |
+| Load a 10,000-change history, half of it text | < 0.5 ms per change | End-to-end history test |
+| Seek in that history | < 50 ms, slowest seek | Same test, 24 stops back and forth |
+| Lay out one 2,000-character body | < 4 ms | Unit benchmark in the browser |
 | Fanout degradation, 1 → 500 viewers | Publish p50 within 15% | `felix-loadgen` for the subscriber side |
 | Snapshot lag | < 1,000 ops behind the tail | Group cursor offset versus stream tail |
 
@@ -602,6 +896,7 @@ default batching versus 190 µs under the latency profile.
 | 6 | Token exchange with per-room narrowing, real IdP | Multi-tenancy enforced by the broker | 1 week |
 | 7 | 500-viewer stress with `felix-loadgen`, kill the owning broker | Demonstrations 1 and 5 | 1 week |
 | 8 | Release images, a compose install, a configurable IdP, a Helm chart | Anyone can self-host it | 1 week |
+| 9 | Rich text in shapes: Yjs updates as ops in the log, an overlay editor, canvas text layout, carets of others | A CRDT rides the same log: concurrent typing merges, and snapshots, rejoin and the scrubber still work as a fold | 3–4 weeks |
 
 **M0 is the one to start first**, and it is worth building even if the canvas is
 never finished: a WebSocket bridge to Felix is the missing piece for every
@@ -611,8 +906,9 @@ Two existing pieces shorten this. Felix's `demos/slow-consumer` already drives
 the overflow behavior M4 needs, and `demos/state-divergence` already has the
 shape of the hash-comparison check demonstration 3 wants.
 
-The honest total is 8–10 weeks of evenings for a single person, and the first
-genuinely impressive demo lands at M4.
+The honest total is 8–10 weeks of evenings for a single person through M8, and
+the first genuinely impressive demo lands at M4. Rich text, M9, is the largest
+single piece of frontend work in the plan and comes last for that reason.
 
 ## Risks, and what this surfaces in Felix
 
@@ -622,7 +918,10 @@ pointer-event handling and produce no argument about the broker. The mitigation
 is the milestone order: everything that proves something about Felix lands by M4.
 
 - Frontend scope creep, as above. A cap: no feature that does not appear in one of the five demonstrations.
-- LWW is wrong for text. If shape labels grow into real text editing, this design needs a different conflict model.
+- Rich text is mostly frontend work. Editor wiring, a canvas layout engine and caret drawing prove little about Felix beyond "a CRDT rides the log". The cap is the formatting list in Text editing; anything past it waits.
+- The canvas and the editor wrap text differently and text jumps when the editor opens. The line-by-line comparison test is the guard.
+- Yjs is between major versions. Pinning the stable line is safe; the move to Yjs 14 needs a check that old ops still decode.
+- A text-heavy room grows its snapshot. The per-body bound and the 4 MiB warning keep it far under the broker's frame limit, but a room with thousands of full bodies would need the snapshot split, which this design does not do.
 - The gateway quietly becoming stateful. Treat state in the gateway as a design defect, not an optimization.
 - Retention versus replay. Whatever the broker keeps bounds how far the scrubber can go.
 
@@ -637,4 +936,5 @@ is the milestone order: everything that proves something about Felix lands by M4
 
 - [x] Does room membership live in cache keys, or in a small external store? Neither: in Felix RBAC, one role per room (see Authorization).
 - [x] Is the scrubber bounded by retention, or does it also need periodic checkpoint snapshots to reach further back? Bounded by retention, which Felix leaves off by default (see How far back the scrubber reaches).
+- [x] What conflict model does text need, since LWW would drop one of two people typing? A CRDT, Yjs, whose updates are ops on the log (see Text editing).
 - [ ] One gateway process per region, or one per room owner to keep the QUIC path shortest?

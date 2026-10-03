@@ -1,6 +1,6 @@
 # Felix Canvas: UX and visual design brief
 
-This brief turns a study of Figma and FigJam, tldraw, Excalidraw, Miro, Whimsical, Apple Freeform, Linear and Replit's file history into concrete decisions for Felix Canvas. It assumes the product design in [design.md](design.md): rooms, LWW shape edits keyed on log offset, an ephemeral presence stream, a time scrubber over the op log, a catching-up state after an offset gap, snapshots, and a status view of offsets and latency.
+This brief turns a study of Figma and FigJam, tldraw, Excalidraw, Miro, Whimsical, Apple Freeform, Linear and Replit's file history into concrete decisions for Felix Canvas. It assumes the product design in [design.md](design.md): rooms, LWW shape edits keyed on log offset, rich text that merges when two people type at once, an ephemeral presence stream, a time scrubber over the op log, a catching-up state after an offset gap, snapshots, and a status view of offsets and latency.
 
 ## What the best products agree on
 
@@ -26,7 +26,7 @@ Five floating islands over a full-bleed canvas. No permanent side panels.
 | Bottom left | History button that turns the bottom bar into the scrubber | Miro puts history in its bottom-left bar ([Miro](https://www.guideflow.com/tutorial/how-to-view-board-history-in-miro)) |
 
 - Islands sit 12 px from the viewport edge, use the panel surface, and never overlap.
-- A contextual style bar (fill, stroke, width, label) floats 8 px above the selection's bounding box, flipping below when there is no room, as in Whimsical and FigJam ([Whimsical](https://whimsical.com/blog/contextual-toolbars-deep-dive)).
+- A contextual style bar (fill, stroke, width, and the text controls under Text editing) floats 8 px above the selection's bounding box, flipping below when there is no room, as in Whimsical and FigJam ([Whimsical](https://whimsical.com/blog/contextual-toolbars-deep-dive)).
 - Avatar stack: 28 px circles, 2 px ring in the panel colour, overlap by 8 px, at most four then a "+N" pill. Hover shows name and "Following" or "Away · 2m". Click opens the people list (see Presence); following comes later.
 - Minimap is off by default; a 200 x 140 px panel above the zoom controls when on, showing the viewport rectangle in the accent and other users' viewports as thin outlines in their colour.
 - `Cmd+\` hides all chrome except the status chip, matching Figma's hide-UI shortcut.
@@ -51,7 +51,7 @@ Five floating islands over a full-bleed canvas. No permanent side panels.
 | O | Ellipse | Figma, Excalidraw |
 | L | Line | Figma, Excalidraw |
 | P (D also works) | Pen stroke | P in Excalidraw and Miro, D in tldraw |
-| T | Text label | All |
+| T | Text | All |
 | I | Image placeholder | No convention; show it in the tooltip |
 | Esc | Back to select, deselect | All |
 | Cmd+Z, Shift+Cmd+Z | Undo, redo (own ops) | All |
@@ -59,11 +59,69 @@ Five floating islands over a full-bleed canvas. No permanent side panels.
 | [ and ] | Send backward, bring forward | tldraw, Figma |
 | Arrows, Shift+arrows | Nudge 1 px, 10 px | Figma |
 | Shift+1, Shift+2, Shift+0 | Zoom to fit, to selection, to 100% | Figma |
-| Cmd+K | Command menu | Linear |
+| Cmd+K | Command menu (a link while editing text) | Linear |
 | Cmd+Shift+H | Toggle history scrubber | New |
 | ? | Shortcut sheet | Miro, Linear |
 
 Tool tooltips appear after 500 ms on first hover and instantly when moving between adjacent tools, and always show the key.
+
+## Text editing
+
+Text shapes, rectangles and ellipses hold rich text. Editing happens in place, on the shape, and looks the same as the text did a moment before.
+
+- **Start**: T then click for a text box that grows as you type, or drag to set its width. Double-click a text box, rectangle or ellipse, or press Enter with one selected, to edit its text.
+- **While editing**: the shape keeps its selection outline, its handles hide, and a text caret replaces the pointer over it. Panning and zooming still work and the text moves with the canvas.
+- **Stop**: Esc, a click outside, or another tool. The shape stays selected after Esc so a second Esc deselects, as in Figma. A new text box left empty disappears.
+- **Placeholder**: an empty box shows "Type something" in `--text-muted`.
+- **Too long**: a paste that would take one box past 10,000 characters is refused with a toast, "That's too much text for one box. Try splitting it."
+
+### Text bar
+
+While editing, the style bar above the shape becomes the text bar. With a shape selected but not being edited, the same bar formats all of its text.
+
+| Group | Controls | Icon (Lucide) |
+|---|---|---|
+| Block | A menu: Text, Heading 1, Heading 2, Heading 3 | `heading` |
+| Style | Bold, italic, underline, as toggles that show pressed when on | `bold`, `italic`, `underline` |
+| Link | Opens a 260 px popover with an address field, "Apply" and "Remove link" | `link` |
+| Lists | Bulleted, numbered | `list`, `list-ordered` |
+| Size | A menu: Small, Medium, Large, Huge, each shown at its size | `a-large-small` |
+| Colour | A swatch of the current colour; opens a grid of ten swatches: Ink, Muted, then the eight presence colours, named in tooltips | none, the swatch is the icon |
+
+- Buttons are 32 px with 4 px gaps and 1 px dividers between groups, the same density as the tool bar. Pressed state uses `--pressed`, not the accent.
+- Colours keep their names in both themes and shift lightness in dark mode, like shape colours. Cyan is not offered: the accent stays reserved for selection and focus, and a cyan word would read as selected.
+- Hovering a link while editing shows its address and "Open" in a small popover. On the canvas, Cmd+click (Ctrl+click elsewhere) opens it in a new tab; a plain click selects the shape as usual, and the tooltip says so.
+
+### Text shortcuts
+
+Shown in the text bar's tooltips and on the shortcut sheet. Cmd is Ctrl outside macOS.
+
+| Key | Action | Convention |
+|---|---|---|
+| Cmd+B, Cmd+I, Cmd+U | Bold, italic, underline | All |
+| Cmd+K | Add or edit a link | Google Docs, Notion, Slack |
+| Cmd+Alt+1, 2, 3 | Heading 1, 2, 3 | Google Docs |
+| Cmd+Alt+0 | Plain text | Google Docs |
+| Cmd+Shift+8, Cmd+Shift+7 | Bulleted, numbered list | Google Docs |
+| Tab, Shift+Tab | Indent, outdent a list item | All |
+| Cmd+Shift+. and Cmd+Shift+, | Larger, smaller text | Google Docs, Word |
+| `# `, `## `, `### ` at the start of a line | Heading 1, 2, 3 | Markdown, Notion |
+| `- ` or `* `, `1. ` at the start of a line | Bulleted, numbered list | Markdown, Notion |
+| Cmd+Z, Shift+Cmd+Z | Undo, redo your own typing | All |
+| Esc | Stop editing | All |
+
+Inside text, Cmd+K means a link, as in every editor people know. The command menu is one Esc away, and stays in the cat-mark menu.
+
+### Other people's carets
+
+- **Caret**: a 2 px bar in the person's colour, one line tall.
+- **Name flag**: their name on a small flag at the top of the caret, the same style as the cursor pill (white Inter 11 px semibold on their colour, 4 px x 6 px padding, but 3 px radius). It shows while they type and for 2 s after, then shrinks over 140 ms to a 6 px square cap. Hovering the caret shows it again.
+- **Selection**: their colour at 20% opacity behind the text (28% in dark mode), drawn under your own selection.
+- **The shape**: someone editing a shape gets the usual outline in their colour, and the name tag reads "Ana · editing".
+- **Their pointer**: their arrow fades out after 1 s of typing and comes back when they move the mouse, so a typing person shows one mark, not two.
+- Carets show the same way in a box you are editing and on the canvas. Carets never animate across text; they jump, since a sliding caret reads as someone typing.
+
+In history mode text is read-only and shows as it was at the playhead, and carets hide with the cursors.
 
 ## Presence
 
@@ -82,7 +140,7 @@ Tool tooltips appear after 500 ms on first hover and instantly when moving betwe
   | Rose | `hsl(344, 78%, 60%)` |
 
 - **Smoothing**: publish at most once per frame as the design says, then render remote cursors with a critically damped spring (about 80 ms to settle). Springs give the best balance of speed and smoothness; splines are more accurate but wait for extra points ([Liveblocks](https://liveblocks.io/blog/how-to-animate-multiplayer-cursors)). If a cursor jumps more than 800 screen px, snap instead of animating across the canvas.
-- **Others' selections**: 1.5 px outline in their colour, plus a small name tag on the top-left corner of the bounding box. Shapes another user is dragging get the same outline, so it is always clear whose hand is on what.
+- **Others' selections**: 1.5 px outline in their colour, plus a small name tag on the top-left corner of the bounding box. Carets inside text are under Text editing. Shapes another user is dragging get the same outline, so it is always clear whose hand is on what.
 - **Off-screen users**: a small arrow in their colour pinned to the viewport edge, pointing at their cursor, as tldraw does. Click it to jump there.
 - **Follow**: click an avatar. The camera eases toward their viewport, fast at first, then locks once within 2 px, as tldraw's follow chase does; follow chains resolve to the leader; any canvas interaction stops following ([tldraw following](https://tldraw.dev/sdk-features/user-following)). While following, a 2 px border in the leader's colour frames the viewport with "Following Ana · Esc to stop" in a pill at top centre.
 - **Idle**: no pointer movement for 10 s fades the cursor and pill to 0 over 400 ms and dims the avatar to 50%. The label is "Away", with the time once it passes a minute ("Away · 2m"); a tab in the background reads the same way.

@@ -113,6 +113,7 @@ the milestone plan.
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | Done |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
 | 8 | Images, a compose install, your own IdP, a Helm chart | Anyone can self-host it | |
+| 9 | Rich text in shapes, merged when two people type at once | A CRDT rides the same log: snapshots, rejoin and replay still work | |
 
 Each milestone is tracked as a [GitHub milestone](https://github.com/gabloe/felix-canvas/milestones)
 with an issue per piece of work.
