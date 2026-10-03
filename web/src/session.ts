@@ -174,7 +174,7 @@ export class Session {
       return true;
     }
     if (this.#seq >= this.#seqEnd) return false;
-    this.replica.edit({ sid: this.sid, seq: this.#seq++, shape, kind, fields });
+    this.replica.edit({ sid: this.sid, seq: this.#seq++, shape, kind, fields, at: Date.now() });
     if (this.#client) this.#send(this.replica.pending.at(-1)!);
     void this.#reserveSeqs();
     this.onDocChange();

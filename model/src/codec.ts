@@ -15,10 +15,11 @@ const encoder = new Encoder({ useBigInt64: true });
 const decoder = new Decoder({ useBigInt64: true });
 
 /**
- * Encode an op as a MessagePack map of `sid`, `seq`, `shape`, `kind` and
- * `fields`. `shape` is 16 bytes, big-endian, since MessagePack has no u128.
+ * Encode an op as a MessagePack map of `sid`, `seq`, `shape`, `kind`,
+ * `fields` and, when the op has a time, `t`. `shape` is 16 bytes, big-endian, since
+ * MessagePack has no u128.
  *
- * @throws RangeError if an id or `seq` is outside its integer range.
+ * @throws RangeError if an id, `seq` or `at` is outside its integer range.
  */
 export function encodeOp(op: Op): Uint8Array {
   checkRange("sid", op.sid, MAX_U64);
@@ -26,18 +27,23 @@ export function encodeOp(op: Op): Uint8Array {
   if (!Number.isInteger(op.seq) || op.seq < 0 || op.seq > MAX_U32) {
     throw new RangeError(`seq ${op.seq} is not a u32`);
   }
+  if (op.at !== undefined && !isTime(op.at)) {
+    throw new RangeError(`at ${op.at} is not a time in milliseconds`);
+  }
   return encoder.encode({
     sid: op.sid,
     seq: op.seq,
     shape: u128ToBytes(op.shape),
     kind: KINDS.indexOf(op.kind),
     fields: op.fields,
+    ...(op.at === undefined ? {} : { t: op.at }),
   });
 }
 
 /**
  * Decode an op written by {@link encodeOp}, or by any encoder that writes
- * `sid` and `seq` as the smallest integer that fits.
+ * `sid` and `seq` as the smallest integer that fits. A `t` that is not a
+ * time is left out rather than refused, since nothing depends on it.
  *
  * @throws OpDecodeError if the bytes are not MessagePack or not an op.
  */
@@ -51,7 +57,7 @@ export function decodeOp(bytes: Uint8Array): Op {
   if (!isRecord(value)) {
     throw new OpDecodeError("an op is a map");
   }
-  const { sid, seq, shape, kind, fields } = value;
+  const { sid, seq, shape, kind, fields, t } = value;
   const kindName = typeof kind === "number" ? KINDS[kind] : undefined;
   if (kindName === undefined) {
     throw new OpDecodeError(`unknown kind ${String(kind)}`);
@@ -71,7 +77,18 @@ export function decodeOp(bytes: Uint8Array): Op {
     shape: bytesToU128(shape),
     kind: kindName,
     fields: fields as Record<string, FieldValue>,
+    ...timeField(t),
   };
+}
+
+// Times above 2^32 travel as uint64, which the decoder hands back as a bigint.
+function timeField(value: unknown): { at?: number } {
+  const at = typeof value === "bigint" ? Number(value) : value;
+  return isTime(at) ? { at } : {};
+}
+
+function isTime(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function toU64(value: unknown): bigint {

@@ -57,9 +57,25 @@ describe("encodeOp and decodeOp", () => {
   });
 
   it("fit a typical move in the design's 60 to 120 bytes", () => {
-    const size = encodeOp(move).length;
+    const size = encodeOp({ ...move, at: Date.now() }).length;
     expect(size).toBeGreaterThanOrEqual(60);
     expect(size).toBeLessThanOrEqual(120);
+  });
+
+  it("carry the time an op was made when it has one", () => {
+    const at = Date.UTC(2026, 9, 2, 14, 3);
+    expect(decodeOp(encodeOp({ ...move, at }))).toEqual({ ...move, at });
+    expect(decodeOp(encodeOp(move))).not.toHaveProperty("at");
+    expect(() => encodeOp({ ...move, at: -1 })).toThrow(RangeError);
+    const bytes = encode({
+      sid: 7,
+      seq: 1,
+      shape: new Uint8Array(16),
+      kind: 1,
+      fields: {},
+      at: "x",
+    });
+    expect(decodeOp(bytes)).not.toHaveProperty("at");
   });
 
   it("accept a sid written as the smallest integer that fits", () => {

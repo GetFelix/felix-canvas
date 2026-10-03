@@ -101,6 +101,8 @@ History mode replaces the bottom tool bar with a full-width timeline (inset 12 p
 - **While scrubbing**: shapes are read-only, remote cursors hide, a 1 px inset accent border tells you the canvas is not live. Hovering a shape shows "Created by Ana at change 1,204, last edited at change 18,390".
 - **Restore to here** writes new ops that set the room to the scrubbed state. History is appended, never rewritten, which is the same promise Figma makes when restoring adds new checkpoints ([Figma](https://help.figma.com/hc/en-us/articles/360038006754-View-a-file-s-version-history)).
 
+Built so far: the timeline with density bars in one colour, the playhead, play at 1x, 4x and 16x (60 changes a second at 1x), the step keys, the "History starts at change N" stub, "Back to live" with a "+37 new" count, and a read-only canvas with cursors hidden and the inset border. Not yet built: bars tinted by author, snapshot markers, the shape hover line and Restore to here.
+
 ## Sync states
 
 One status chip in the top-right island: an 8 px dot and a short label. It changes text, not size: the label slot has a fixed minimum width and numbers use tabular figures.
