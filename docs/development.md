@@ -1,8 +1,7 @@
 # Development
 
-How to work on Felix Canvas: where to run it, the rules the lockfile follows, and
-what CI checks. The [README](../README.md#running-locally) has the commands for a
-local run.
+How to work on Felix Canvas: where to run it, how to run it locally, how the
+repository is laid out, the rules the lockfile follows, and what CI checks.
 
 ## Where to run it
 
@@ -11,7 +10,7 @@ for `model/`, `web/` and the snapshotter.
 
 | Environment | When | Notes |
 |---|---|---|
-| Your machine | Docker and npmjs.org are both available | Follow the README. |
+| Your machine | Docker and npmjs.org are both available | Follow [Running locally](#running-locally). |
 | GitHub Codespace | npmjs.org is blocked, or you don't want Docker locally | The default image has Node and Docker. Install Rust with rustup; `rust-toolchain.toml` pins the version. Use the 4-core machine: the Felix images, the gateway build and Playwright run side by side. |
 | CI | Every push and pull request | The same checks as below, against the published Felix images. |
 
@@ -26,6 +25,96 @@ gh codespace ssh -c <name> -- 'cd /workspaces/felix-canvas && npm test'
 ```
 
 Delete the Codespace when the work is merged.
+
+## Running locally
+
+You need Docker, Rust (the toolchain in `rust-toolchain.toml` installs itself),
+and Node 24.
+
+1. Start Felix. This pulls `ghcr.io/gabloe/felix-broker` and
+   `felix-controlplane` at `0.6.0-preview`, starts a stand-in sign-in service on
+   `127.0.0.1:9400`, creates the `lobby` and `studio` rooms, and writes the
+   snapshotter's token and the broker's certificate to `dev/state/`:
+
+   ```bash
+   dev/up.sh
+   ```
+
+   Each run starts from an empty log. `docker compose -f dev/docker-compose.yml down -v`
+   stops it.
+
+2. Start the gateway, which listens on `127.0.0.1:8787`. It has no token of its
+   own; each browser's sign-in is exchanged for one when it joins:
+
+   ```bash
+   export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem
+   cargo run -p felix-canvas-gateway
+   ```
+
+3. In another shell, build the shared model and start the snapshotter, which
+   answers on `127.0.0.1:8788` with how far it has got:
+
+   ```bash
+   npm install
+   npm run build -w @felix-canvas/model -w @felix-canvas/snapshotter
+   export CANVAS_FELIX_TOKEN="$(cat dev/state/snapshotter.token)"
+   export CANVAS_FELIX_CA_FILE="$PWD/dev/state/broker-cert.pem"
+   npm start -w @felix-canvas/snapshotter
+   ```
+
+4. In another shell, start the page, which proxies the gateway's routes:
+
+   ```bash
+   npm run dev -w @felix-canvas/web
+   ```
+
+5. Open <http://localhost:5173> in two windows, continue as `ana` or `ben`, and
+   draw: <kbd>R</kbd> for a rectangle, <kbd>O</kbd> an ellipse, <kbd>L</kbd> a
+   line, <kbd>P</kbd> the pen, <kbd>T</kbd> text, <kbd>V</kbd> to select and
+   drag, and <kbd>?</kbd> for every shortcut. Double-click a shape to type in
+   it; type in the same box from both windows at once. The chip at the top right shows how long your changes
+   take to save; click it for the sync details, including the canvas version
+   both windows should share. `?room=studio` opens the other room, which only
+   `ana` may open.
+
+`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variable
+from step 2 exported, the integration tests run against the same stack:
+
+```bash
+cargo test -- --include-ignored
+```
+
+The browser tests start their own gateway, snapshotter and page against the
+running stack:
+
+```bash
+npx -w @felix-canvas/web playwright install chromium
+npm run test:e2e -w @felix-canvas/web
+```
+
+[self-hosting.md](self-hosting.md#configuration-reference) lists every
+variable the gateway, the snapshotter and the seed read.
+
+## Repository layout
+
+| Path | What |
+|---|---|
+| `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes. `examples/viewers.rs` holds the viewers for the fanout measurement |
+| `model/` | The op schema, its MessagePack encoding, the fold, the snapshot format and the state hash, shared by the browser and the snapshotter |
+| `snapshotter/` | Node service: reads a room's log through a consumer group with the `felix-client` npm package and keeps its snapshot in the cache |
+| `web/` | The browser client: Canvas2D renderer, tools, the op pipeline and join path, and the Playwright tests |
+| `dev/` | Felix for local runs and CI: Docker Compose over the published images with one broker or three, a stand-in IdP, and the seed script |
+| `docker/` | The Dockerfiles for the two images |
+| `deploy/compose/` | The release compose file, its settings, and a Dex example |
+| `deploy/helm/felix-canvas/` | The Helm chart, run next to the Felix chart |
+| `docs/design.md` | The design: data model, editing and join rules, failure modes, targets |
+| `docs/protocol.md` | The browser to gateway protocol |
+| `docs/ux.md` | The UX and visual design brief the interface is built from |
+| `docs/development.md` | Running it locally, the repository layout, the lockfile rule, the dev stack and CI |
+| `docs/self-hosting.md` | Installing, your own IdP, TLS, backups, upgrades, and every setting |
+| `docs/performance.md` | Measured results for each performance target |
+| `docs/brand/` | The Felix Canvas mark, adapted from the Felix logo |
+| `CONTRIBUTING.md` | How code, comments and pull requests should read |
 
 ## npm registry and the lockfile
 
@@ -171,8 +260,9 @@ CANVAS_MEASURE=1 npm run test:e2e -w @felix-canvas/web -- targets
 CANVAS_FANOUT_VIEWERS=500 npm run test:e2e -w @felix-canvas/web -- fanout
 ```
 
-Each prints a row per target and fails if a target is missed. The README
-records the numbers and the machine they came from.
+Each prints a row per target and fails if a target is missed.
+[performance.md](performance.md) records the numbers and the machine they came
+from.
 
 | Target | How it is timed |
 |---|---|
