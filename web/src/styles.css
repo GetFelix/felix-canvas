@@ -306,6 +306,7 @@ kbd {
 
 .island .chip {
   gap: 7px;
+  position: relative;
   min-width: 128px;
   padding: 0 10px;
   justify-content: flex-start;
@@ -333,8 +334,39 @@ kbd {
   animation: pulse 1s ease-in-out infinite;
 }
 
-.chip[data-state="reconnecting"] .dot {
+.chip[data-state="reconnecting"] .dot,
+.chip[data-state="behind"] .dot {
   background: var(--warn);
+}
+
+/* A check mark in the dot's slot. */
+.chip[data-state="converged"] .dot {
+  width: 4px;
+  height: 8px;
+  margin: 0 2px;
+  border-radius: 0;
+  background: none;
+  border: solid var(--ok);
+  border-width: 0 2px 2px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.chip-progress {
+  position: absolute;
+  right: 10px;
+  bottom: 3px;
+  left: 10px;
+  height: 2px;
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.chip-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--warn);
+  transition: width 140ms linear;
 }
 
 @keyframes pulse {
@@ -666,8 +698,13 @@ kbd {
   opacity: 0.9;
 }
 
+#app.rebuilding #canvas {
+  opacity: 0.6;
+  transition: opacity 200ms ease-out;
+}
+
 .joining {
-  width: 300px;
+  width: 340px;
   padding: 24px;
   background: var(--panel);
   border: 1px solid var(--island-border);

@@ -1,6 +1,8 @@
 import {
+  EMPTY_DOC,
   MAX_U32,
   decodePresence,
+  decodeSnapshot,
   encodeOp,
   encodePresence,
   randomSessionId,
@@ -10,6 +12,21 @@ import {
 } from "@felix-canvas/model";
 
 import { GatewayClient, type GatewayEvent } from "./gateway.js";
+
+/** The part of {@link GatewayClient} a session uses, so tests can stand in for it. */
+export type Gateway = Pick<
+  GatewayClient,
+  | "onHello"
+  | "onEvent"
+  | "onSubscribed"
+  | "onError"
+  | "onClose"
+  | "subscribe"
+  | "publish"
+  | "counterAdd"
+  | "snapshot"
+  | "close"
+>;
 import { Replica, type PendingEdit } from "./replica.js";
 
 /** Seqs reserved from the counter at a time. Another block is fetched at half. */
@@ -47,6 +64,13 @@ export class RoundTrips {
 /**
  * This browser's session in the room: one gateway connection, replaced when
  * it drops, feeding one {@link Replica}.
+ *
+ * Joining subscribes at the live tail before reading the snapshot, so a
+ * change published while the snapshot is in flight is already queued here;
+ * reading first would lose it. Buffered changes the snapshot holds are
+ * dropped, the rest apply, and anything between the snapshot and the tail is
+ * read with a second subscription from the snapshot's offset. A session whose
+ * position has been trimmed from the log rejoins the same way.
  */
 export class Session {
   readonly sid = randomSessionId();
@@ -61,6 +85,12 @@ export class Session {
   tail = -1;
   /** Whether the replica has reached the tail the first subscription reported. */
   caughtUp = false;
+  /** Whether a correct frame can be drawn: a snapshot is applied, or the replica caught up. */
+  hasFrame = false;
+  /** Whether the log no longer holds this replica's position and it is starting again. */
+  rebuilding = false;
+  /** The log offset of the snapshot the session joined from, or `null` for none. */
+  snapshotOffset: number | null = null;
 
   /** Called when the replica's view may have changed. */
   onDocChange: () => void = () => {};
@@ -70,7 +100,9 @@ export class Session {
   onPresence: (presence: Presence) => void = () => {};
 
   readonly #url: string;
-  #client: GatewayClient | null = null;
+  readonly #open: (url: string) => Promise<Gateway>;
+  #client: Gateway | null = null;
+  #awaitingSnapshot = false;
   #seq = 0;
   #seqEnd = 0;
   #reserving = false;
@@ -78,8 +110,14 @@ export class Session {
   #retries = 0;
   #presenceSent = { n: 0, at: 0 };
 
-  constructor(url: string) {
+  constructor(url: string, open: (url: string) => Promise<Gateway> = GatewayClient.connect) {
     this.#url = url;
+    this.#open = open;
+  }
+
+  /** Whether the session is waiting for the snapshot to join from. */
+  get loading(): boolean {
+    return this.#awaitingSnapshot;
   }
 
   start(): void {
@@ -113,9 +151,9 @@ export class Session {
   }
 
   async #connect(): Promise<void> {
-    let client: GatewayClient;
+    let client: Gateway;
     try {
-      client = await GatewayClient.connect(this.#url);
+      client = await this.#open(this.#url);
     } catch {
       this.#retry();
       return;
@@ -131,6 +169,7 @@ export class Session {
       this.#retries = 0;
       this.connection = "live";
       this.tail = Math.max(this.tail, (live ?? 0) - 1);
+      if (this.#awaitingSnapshot) void this.#loadSnapshot(client);
       this.#checkCaughtUp();
       this.onStatusChange();
     };
@@ -140,11 +179,15 @@ export class Session {
     };
     client.onError = (error, stream) => {
       if (stream === "ops") {
-        // Wait first, so a subscription Felix keeps refusing is not retried in a tight loop.
+        // Wait first, so a subscription Felix keeps refusing is not retried in
+        // a tight loop. The first trim goes straight to rebuilding.
+        const wait = error.code === "trimmed" && !this.rebuilding ? 0 : 1000;
+        if (error.code === "trimmed") this.#startRebuild();
         setTimeout(() => {
+          if (this.#client !== client) return;
           this.#resubscribing = false;
-          this.#resubscribe();
-        }, 1000);
+          this.#subscribeOps(client);
+        }, wait);
       }
       console.warn(`gateway: ${error.code}: ${error.message}`);
     };
@@ -156,12 +199,66 @@ export class Session {
       this.#retry();
     };
 
-    client.subscribe("ops", this.replica.next);
+    this.#subscribeOps(client);
     client.subscribe("presence", "live");
     // Resend before anything new, so this session's ops keep reaching the
     // log in seq order. The fold's dedupe absorbs any that landed already.
     for (const edit of this.replica.pending) this.#send(edit);
     await this.#reserveSeqs();
+  }
+
+  #subscribeOps(client: Gateway): void {
+    if (this.rebuilding || this.replica.next === 0) {
+      this.#awaitingSnapshot = true;
+      client.subscribe("ops", "live");
+    } else {
+      client.subscribe("ops", this.replica.next);
+    }
+  }
+
+  #startRebuild(): void {
+    this.rebuilding = true;
+    this.caughtUp = false;
+    this.onStatusChange();
+  }
+
+  async #loadSnapshot(client: Gateway): Promise<void> {
+    let bytes: Uint8Array | null;
+    try {
+      bytes = await client.snapshot();
+    } catch (error) {
+      console.warn(`cannot read the snapshot: ${String(error)}`);
+      setTimeout(() => this.#client === client && this.#subscribeOps(client), 1000);
+      return;
+    }
+    if (this.#client !== client || !this.#awaitingSnapshot) return;
+    this.#awaitingSnapshot = false;
+    let snapshot = null;
+    try {
+      snapshot = bytes && decodeSnapshot(bytes);
+    } catch (error) {
+      console.warn(`ignoring an unreadable snapshot: ${String(error)}`);
+    }
+    if (snapshot || this.rebuilding) {
+      const doc = snapshot?.doc ?? EMPTY_DOC;
+      const next = snapshot ? snapshot.offset + 1 : 0;
+      this.#confirmed(this.replica.reset(doc, next));
+      this.snapshotOffset = snapshot?.offset ?? null;
+      this.hasFrame ||= snapshot !== null;
+      this.tail = Math.max(this.tail, this.replica.next - 1);
+    }
+    // The live subscription began at the tail; read what lies between.
+    if (this.replica.next <= this.tail) this.#resubscribe();
+    this.#checkCaughtUp();
+    this.onDocChange();
+    this.onStatusChange();
+  }
+
+  #confirmed(edits: PendingEdit[]): void {
+    const now = performance.now();
+    for (const edit of edits) {
+      if (edit.sentAt !== null) this.editTrips.add(now - edit.sentAt);
+    }
   }
 
   #retry(): void {
@@ -196,12 +293,10 @@ export class Session {
 
   #deliver(event: GatewayEvent): void {
     if (event.offset === null) return;
-    const now = performance.now();
-    for (const edit of this.replica.deliver(event.offset, event.skippedBefore, event.payload)) {
-      if (edit.sentAt !== null) this.editTrips.add(now - edit.sentAt);
-    }
+    this.#confirmed(this.replica.deliver(event.offset, event.skippedBefore, event.payload));
     this.tail = Math.max(this.tail, event.offset);
-    if (this.replica.hasGap) this.#resubscribe();
+    // While the snapshot is in flight, everything arrives ahead of the replica.
+    if (this.replica.hasGap && !this.#awaitingSnapshot) this.#resubscribe();
     this.#checkCaughtUp();
     this.onDocChange();
   }
@@ -215,8 +310,15 @@ export class Session {
   }
 
   #checkCaughtUp(): void {
-    if (!this.caughtUp && this.connection === "live" && this.replica.next > this.tail) {
+    if (
+      !this.caughtUp &&
+      !this.#awaitingSnapshot &&
+      this.connection === "live" &&
+      this.replica.next > this.tail
+    ) {
       this.caughtUp = true;
+      this.hasFrame = true;
+      this.rebuilding = false;
       this.onStatusChange();
     }
   }

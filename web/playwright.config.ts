@@ -7,14 +7,15 @@ import { defineConfig, devices } from "@playwright/test";
 // with the token and certificate it wrote.
 const root = fileURLToPath(new URL("..", import.meta.url));
 const state = `${root}dev/state`;
-const token = existsSync(`${state}/gateway.token`)
-  ? readFileSync(`${state}/gateway.token`, "utf8").trim()
-  : "";
+const token = (name: string) =>
+  existsSync(`${state}/${name}.token`) ? readFileSync(`${state}/${name}.token`, "utf8").trim() : "";
 
 export default defineConfig({
   testDir: "e2e",
   testMatch: "*.e2e.ts",
   timeout: 60_000,
+  // Every test shares the one room the gateway serves.
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
@@ -28,8 +29,22 @@ export default defineConfig({
       command: "cargo run --locked -p felix-canvas-gateway",
       cwd: root,
       url: "http://127.0.0.1:8787/metrics",
-      env: { CANVAS_FELIX_TOKEN: token, CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem` },
+      env: {
+        CANVAS_FELIX_TOKEN: token("gateway"),
+        CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem`,
+      },
       timeout: 300_000,
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command:
+        "npm run build -w @felix-canvas/snapshotter && npm start -w @felix-canvas/snapshotter",
+      cwd: root,
+      url: "http://127.0.0.1:8788/",
+      env: {
+        CANVAS_FELIX_TOKEN: token("snapshotter"),
+        CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem`,
+      },
       reuseExistingServer: !process.env.CI,
     },
     {

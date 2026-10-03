@@ -1,4 +1,4 @@
-import { encodeOp, stateHash, type Op } from "@felix-canvas/model";
+import { EMPTY_DOC, apply, encodeOp, stateHash, type Op } from "@felix-canvas/model";
 import { describe, expect, it } from "vitest";
 
 import { Replica } from "../src/replica.js";
@@ -138,5 +138,38 @@ describe("Replica", () => {
     replica.deliver(1, 0, encodeOp(rect(ana, 0, 1n)));
     expect(replica.next).toBe(2);
     expect(replica.confirmed.shapes.size).toBe(1);
+  });
+
+  it("continues from a snapshot, applying buffered records past it", () => {
+    const records = log();
+    const inOrder = new Replica(me);
+    for (const record of records)
+      inOrder.deliver(record.offset, record.skippedBefore, record.payload);
+
+    // A snapshot of offsets 0 to 4, while records from 6 on are already buffered.
+    const snapshot = [rect(ana, 0, 1n), rect(ben, 0, 2n), move(ana, 1, 2n, 5), move(ben, 1, 2n, 9)]
+      .map((op, i) => [op, i < 3 ? i : 4] as const)
+      .reduce((doc, [op, offset]) => apply(doc, op, offset), EMPTY_DOC);
+    const replica = new Replica(me);
+    for (const record of records.slice(5)) {
+      replica.deliver(record.offset, record.skippedBefore, record.payload);
+    }
+    expect(replica.hasGap).toBe(true);
+    replica.reset(snapshot, 5);
+    expect(replica.hasGap).toBe(true);
+    const fifth = records[4]!;
+    replica.deliver(fifth.offset, fifth.skippedBefore, fifth.payload);
+    expect(replica.next).toBe(inOrder.next);
+    expect(stateHash(replica.confirmed)).toBe(stateHash(inOrder.confirmed));
+  });
+
+  it("confirms pending edits a snapshot already holds", () => {
+    const replica = new Replica(me);
+    replica.edit(rect(me, 3, 1n));
+    replica.edit(move(me, 4, 1n, 2));
+    const snapshot = apply(EMPTY_DOC, rect(me, 3, 1n), 0);
+    const confirmed = replica.reset(snapshot, 1);
+    expect(confirmed.map(({ op }) => op.seq)).toEqual([3]);
+    expect(replica.pending.map(({ op }) => op.seq)).toEqual([4]);
   });
 });
