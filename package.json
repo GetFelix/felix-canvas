@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "model",
-    "web"
+    "web",
+    "snapshotter"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

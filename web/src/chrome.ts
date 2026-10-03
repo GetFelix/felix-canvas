@@ -29,6 +29,8 @@ type Theme = "system" | "light" | "dark";
 const SAVING_AFTER_MS = 300;
 /** Brief drops stay quiet: the chip says "Reconnecting" only after this. */
 const RECONNECT_GRACE_MS = 800;
+/** How long "Up to date" shows after catching up. */
+const CONVERGED_MS = 2000;
 const MAX_AVATARS = 4;
 const TOOLTIP_DELAY_MS = 500;
 
@@ -51,6 +53,9 @@ export class Chrome {
   #pendingSince: number | null = null;
   #disconnectedAt: number | null = null;
   #metrics: { browser: number; felix: number } | null = null;
+  /** The replica's position when catching up began, for the progress bars. */
+  #catchUpFrom: number | null = null;
+  #convergedAt: number | null = null;
   #toastTimer = 0;
 
   constructor(session: Session, editor: Editor, name: string) {
@@ -145,11 +150,19 @@ export class Chrome {
     if (pending === 0) this.#pendingSince = null;
     else this.#pendingSince ??= now;
 
-    const joining = !session.caughtUp;
-    element("joining").hidden = !joining;
+    if (!session.caughtUp && !session.loading) this.#catchUpFrom ??= session.replica.next;
+    if (session.caughtUp && this.#catchUpFrom !== null) {
+      this.#catchUpFrom = null;
+      this.#convergedAt = now;
+    }
+    const progress = this.#progress();
+
+    const card = !session.hasFrame || session.rebuilding;
+    element("joining").hidden = !card;
+    element("app").classList.toggle("rebuilding", session.rebuilding);
     element("empty").hidden =
-      joining || session.replica.view().shapes.size > 0 || this.#editor.draft !== null;
-    if (joining) this.#renderJoining();
+      !session.caughtUp || session.replica.view().shapes.size > 0 || this.#editor.draft !== null;
+    if (card) this.#renderJoining(progress);
 
     let state: string;
     let label: string;
@@ -157,6 +170,15 @@ export class Chrome {
       [state, label] = ["reconnecting", "Reconnecting"];
     } else if (session.connection === "connecting") {
       [state, label] = ["connecting", "Connecting"];
+    } else if (session.rebuilding) {
+      [state, label] = ["behind", "Rebuilding"];
+    } else if (!session.caughtUp) {
+      [state, label] = [
+        "behind",
+        progress ? `Catching up ${progress.left.toLocaleString()}` : "Loading",
+      ];
+    } else if (this.#convergedAt !== null && now - this.#convergedAt < CONVERGED_MS) {
+      [state, label] = ["converged", "Up to date"];
     } else if (this.#pendingSince !== null && now - this.#pendingSince > SAVING_AFTER_MS) {
       [state, label] = ["saving", `Saving ${pending}`];
     } else {
@@ -166,26 +188,44 @@ export class Chrome {
     const chip = element("chip");
     chip.dataset.state = state;
     element("chip-label").textContent = label;
+    element("chip-bar").style.width =
+      state === "behind" && progress ? `${progress.fraction * 100}%` : "0";
 
     if (!element("status").hidden) this.#renderStatus();
   }
 
-  #renderJoining(): void {
+  /** How far catching up has got, once the session knows where it started. */
+  #progress(): { left: number; fraction: number } | null {
+    if (this.#catchUpFrom === null) return null;
+    const total = this.#session.tail + 1 - this.#catchUpFrom;
+    const done = this.#session.replica.next - this.#catchUpFrom;
+    return {
+      left: Math.max(0, total - done),
+      fraction: total <= 0 ? 1 : Math.min(1, done / total),
+    };
+  }
+
+  #renderJoining(progress: { left: number; fraction: number } | null): void {
     const session = this.#session;
-    const title = element("joining-title");
-    const detail = element("joining-detail");
-    const bar = element("joining-bar");
     const room = session.room?.room;
-    title.textContent = room ? `Joining ${room}` : "Joining the room";
+    const detail = element("joining-detail");
+    element("joining-title").textContent = session.rebuilding
+      ? `Rebuilding ${room ?? "the canvas"}`
+      : room
+        ? `Joining ${room}`
+        : "Joining the room";
+    element("joining-bar").style.width = `${(progress?.fraction ?? 0) * 100}%`;
     if (session.connection !== "live") {
       detail.textContent = session.connection === "connecting" ? "Connecting" : "Reconnecting";
-      bar.style.width = "0";
-      return;
+    } else if (!progress) {
+      detail.textContent = "Loading the canvas";
+    } else if (session.rebuilding) {
+      detail.textContent = `Loading the canvas: ${progress.left.toLocaleString()} recent changes`;
+    } else {
+      const total = session.tail + 1;
+      const done = Math.min(session.replica.next, total);
+      detail.textContent = `Loading the canvas: ${done.toLocaleString()} of ${total.toLocaleString()} changes`;
     }
-    const total = session.tail + 1;
-    const done = Math.min(session.replica.next, total);
-    detail.textContent = `Loading the canvas: ${done.toLocaleString()} of ${total.toLocaleString()} changes`;
-    bar.style.width = `${total === 0 ? 100 : (done / total) * 100}%`;
   }
 
   #renderStatus(): void {

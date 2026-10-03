@@ -20,11 +20,13 @@
 </picture>
 
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
-caches. You run it yourself: Felix, a stateless gateway and the web app.
+caches. You run it yourself: Felix, a stateless gateway, a snapshotter and the web app.
 
-**Status: M1 done.** Two browsers draw rectangles, ellipses, lines and pen
+**Status: M2 done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
+A snapshotter keeps the room's folded state in the Felix cache, so a browser
+joining a busy room draws it at once and reads only the recent changes.
 Packaged images for self-hosting come in M8; until then, see
 [Running locally](#running-locally).
 
@@ -96,7 +98,7 @@ the milestone plan.
 |---|---|---|---|
 | 0 | WebSocket gateway relaying publish/subscribe | A browser can reach Felix at all | Done |
 | 1 | Two browsers, shapes, offset-ordered apply | The log is the document | Done |
-| 2 | Snapshotter and the join path | A cold client joins a busy room correctly | |
+| 2 | Snapshotter and the join path | A cold client joins a busy room correctly | Done |
 | 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real | |
 | 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | |
 | 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | |
@@ -133,13 +135,31 @@ M1 makes the log the document. What it proves, in CI against the same images:
 - Each session's sequence numbers come from the Felix counter
   `canvas.seq/<room>:<session>`, reserved through the gateway.
 
+M2 makes joining cheap. What it proves, in CI against the same images:
+
+- The snapshotter reads the op log through the consumer group `snapshotter`,
+  folds it with the same `model/` code as the browser, and writes the state and
+  its offset as one value to `canvas.snap/<room>`. It acknowledges records only
+  after the write, and unit tests show a crash between writes ends in the same
+  snapshot.
+- A browser subscribes at the live tail before it reads the snapshot. A unit
+  test publishes while the snapshot read is in flight and checks that the
+  change arrives on the live subscription, with no second read of the log, and
+  an integration test checks the same against Felix.
+- A browser whose place in the log has been trimmed rebuilds from the snapshot
+  through the same code path and keeps its unsaved edits.
+- A cold browser joining a room of 10,000 ops while another session edits draws
+  its first correct frame in under 500 ms and ends with the same state hash as a
+  browser that saw every op live.
+
 ## Repository layout
 
 | Path | What |
 |---|---|
 | `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes |
-| `model/` | The op schema, its MessagePack encoding, the fold and the state hash, shared by the browser and the future snapshotter |
-| `web/` | The browser client: Canvas2D renderer, tools, the op pipeline, and the Playwright test |
+| `model/` | The op schema, its MessagePack encoding, the fold, the snapshot format and the state hash, shared by the browser and the snapshotter |
+| `snapshotter/` | Node service: reads a room's log through a consumer group with the `felix-client` npm package and keeps its snapshot in the cache |
+| `web/` | The browser client: Canvas2D renderer, tools, the op pipeline and join path, and the Playwright tests |
 | `dev/` | Felix for local runs and CI: Docker Compose over the published images, a stand-in IdP, and a seed script |
 | `docs/design.md` | The design: data model, editing and join rules, failure modes, targets |
 | `docs/protocol.md` | The browser to gateway protocol |
@@ -172,15 +192,25 @@ and Node 24.
    cargo run -p felix-canvas-gateway
    ```
 
-3. Start the page, which proxies `/ws` and `/metrics` to the gateway:
+3. In another shell, build the shared model and start the snapshotter, which
+   answers on `127.0.0.1:8788` with how far it has got:
 
    ```bash
    npm install
-   npm run build -w @felix-canvas/model
+   npm run build -w @felix-canvas/model -w @felix-canvas/snapshotter
+   export CANVAS_FELIX_TOKEN="$(cat dev/state/snapshotter.token)"
+   export CANVAS_FELIX_CA_FILE="$PWD/dev/state/broker-cert.pem"
+   npm start -w @felix-canvas/snapshotter
+   ```
+
+4. In another shell, start the page, which proxies `/ws` and `/metrics` to the
+   gateway:
+
+   ```bash
    npm run dev -w @felix-canvas/web
    ```
 
-4. Open <http://localhost:5173> in two windows and draw: <kbd>R</kbd> for a
+5. Open <http://localhost:5173> in two windows and draw: <kbd>R</kbd> for a
    rectangle, <kbd>O</kbd> an ellipse, <kbd>L</kbd> a line, <kbd>P</kbd> the pen,
    <kbd>V</kbd> to select and drag, and <kbd>?</kbd> for every shortcut. The chip
    at the top right shows how long your changes take to save; click it for the
@@ -193,7 +223,8 @@ from step 2 exported, the integration tests run against the same stack:
 cargo test -- --include-ignored
 ```
 
-The two-browser test starts its own gateway and page against the running stack:
+The browser tests start their own gateway, snapshotter and page against the
+running stack:
 
 ```bash
 npx -w @felix-canvas/web playwright install chromium
@@ -203,7 +234,9 @@ npm run test:e2e -w @felix-canvas/web
 The gateway reads `CANVAS_LISTEN`, `CANVAS_FELIX_BROKERS`,
 `CANVAS_FELIX_SERVER_NAME`, `CANVAS_FELIX_CA_FILE`, `CANVAS_FELIX_TOKEN`,
 `CANVAS_TENANT`, `CANVAS_NAMESPACE` and `CANVAS_ROOM`; see
-[`gateway/src/config.rs`](gateway/src/config.rs) for their defaults.
+[`gateway/src/config.rs`](gateway/src/config.rs) for their defaults. The
+snapshotter reads the same ones except `CANVAS_LISTEN`, and four of its own
+listed in [docs/development.md](docs/development.md#the-felix-dev-stack).
 
 ## License
 
