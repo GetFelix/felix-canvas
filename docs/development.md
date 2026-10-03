@@ -221,10 +221,7 @@ running instead of starting their own servers, and `CANVAS_E2E_PASSWORD` makes
 them sign in through a Dex login form. Only `convergence.e2e.ts` is meant for
 an install; the others drive the dev stack directly.
 
-A release is a `v*` tag. Before tagging, set the compose file's
-`CANVAS_VERSION` default and the chart's `appVersion` to the new version, and
-bump the chart's `version`; the release workflow refuses a tag that does not
-match.
+[Releasing](#releasing) covers tagging and what a release publishes.
 
 `deploy/helm/felix-canvas/ci/kind-install.sh` installs the Felix chart and
 this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
@@ -239,7 +236,44 @@ this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
 | Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound, two people typing into one text box at once and ending with the same text, the canvas breaking a fixed set of bodies into the same lines as the editor, every control and shortcut of the text bar in both themes, pasted HTML keeping only the formats text can have, carets staying on their characters while others type, and an open editor keeping its caret and unsent typing through a rejoin from the snapshot. The history, cold-join and slow-connection tests have typing in their load. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 | Failover against a Felix cluster | Starts the three-broker stack and runs `web/e2e/failover.e2e.ts`: two browsers edit while a third watches the room's history, the broker that owns the room's op log is killed, and both editors end with the same state hash, which is also the fold of the log read back from offset 0. Every edit a browser saw acknowledged is in that log, the history view reaches the same state, the snapshotter carries on, and a browser that joins afterwards matches. It is a separate job, and not a required check, because it needs three brokers and stops one |
+| Release (workflow) | On pull requests, a dry run of the release: the tree's versions agree, the `CHANGELOG.md` section for that version exists, and the chart and the compose bundle package. See [Releasing](#releasing) |
 | Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page and once with Dex. On a `v*` tag it pushes, merges and signs the images first and runs the install from GHCR. On pull requests it also installs the Felix chart and this chart on kind and runs the same test through it |
+
+## Releasing
+
+A release is a `v*` tag on `main`, such as `v0.2.0`, or `v0.2.0-rc.1` for a
+pre-release. To cut one:
+
+1. In one pull request, set the new version everywhere the release workflow
+   checks: `gateway/Cargo.toml`, the `package.json` of `model/`, `web/` and
+   `snapshotter/`, `package-lock.json` and `Cargo.lock` (run `cargo check` and
+   `npm install`), the chart's `version` and `appVersion` in
+   `deploy/helm/felix-canvas/Chart.yaml`, every `CANVAS_VERSION` default in
+   `deploy/compose/docker-compose.yml`, and the image tags and release links in
+   the docs. Rename `## [Unreleased]` in `CHANGELOG.md` to
+   `## [0.2.0] - <date>` and add an empty `## [Unreleased]` above it.
+2. Before merging, run the Release workflow from the branch with that tag and
+   `dry_run` checked. It runs every check and builds every asset, and
+   publishes nothing.
+3. Merge, then tag the merge commit and push the tag:
+
+   ```bash
+   git tag -a v0.2.0 -m v0.2.0 && git push origin v0.2.0
+   ```
+
+The tag starts two workflows. Images builds, pushes and signs both images, as
+it does for every tag. Release checks that the tag matches every version in
+the tree, waits until both images for the tag are published and signed,
+packages the chart and pushes it to `oci://ghcr.io/gabloe/charts/felix-canvas`
+signed with cosign, bundles `deploy/compose/` as
+`felix-canvas-compose-<version>.tar.gz`, and creates the GitHub release. Its
+notes are the version's `CHANGELOG.md` section, an install block and the image
+digests, and its assets are the chart, the compose bundle and `SHA256SUMS`. A
+version with a `-` suffix is marked as a pre-release.
+
+To release a tag that already exists, run the Release workflow by hand with
+the tag as `tag`. Every pull request also runs it as a dry run against the
+version in the tree.
 
 ## Measuring the performance targets
 

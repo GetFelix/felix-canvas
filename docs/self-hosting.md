@@ -18,11 +18,21 @@ gateway, the snapshotter and the seed read.
 | `idp` | the snapshotter image | No | The development sign-in page, while you try it out |
 
 Both canvas images are built for `linux/amd64` and `linux/arm64` and signed
-with cosign by the release workflow. To check one before you run it:
+with cosign by the images workflow when a release is tagged. The release notes
+list each image's digest. To check one before you run it:
 
 ```bash
 cosign verify ghcr.io/gabloe/felix-canvas:0.1.0 \
   --certificate-identity-regexp 'https://github.com/gabloe/felix-canvas/.github/workflows/images.yml@refs/tags/v.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The Helm chart is published as `oci://ghcr.io/gabloe/charts/felix-canvas` and
+signed by the release workflow:
+
+```bash
+cosign verify ghcr.io/gabloe/charts/felix-canvas:0.1.0 \
+  --certificate-identity-regexp 'https://github.com/gabloe/felix-canvas/.github/workflows/release.yml@refs/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -33,13 +43,17 @@ and disk for the drawings: a fresh install with two rooms takes about 100 MB,
 because the broker reserves a segment up front for each log a room writes to
 (see `FELIX_SEGMENT_BYTES`).
 
-1. Get the compose file and its settings for a release. They are in
-   `deploy/compose/` of the release's source:
+1. Download the compose bundle attached to a
+   [release](https://github.com/gabloe/felix-canvas/releases). It holds
+   `deploy/compose/` from that release, with the image tags defaulting to the
+   release's version:
 
    ```bash
-   git clone --depth 1 --branch v0.1.0 https://github.com/gabloe/felix-canvas
-   cd felix-canvas/deploy/compose
+   curl -fsSL https://github.com/gabloe/felix-canvas/releases/download/v0.1.0/felix-canvas-compose-0.1.0.tar.gz | tar xz
+   cd felix-canvas-compose-0.1.0
    ```
+
+   `SHA256SUMS` on the same release has its checksum.
 
 2. Edit `.env`. Change `FELIX_BOOTSTRAP_TOKEN` and `FELIX_RAFT_PEER_TOKEN`
    before the first start: the bootstrap token can create tenants and cluster
@@ -214,7 +228,8 @@ the broker would hold records for streams the control plane does not know.
 
 Each release pins its canvas images and the Felix version it was tested with
 in `docker-compose.yml`. To upgrade, back up, replace `docker-compose.yml`
-with the new release's, keep your `.env`, and restart:
+with the one in the new release's compose bundle, keep your `.env`, and
+restart:
 
 ```bash
 docker compose pull
@@ -269,11 +284,13 @@ kind, with the values in `deploy/helm/felix-canvas/ci/`.
    helm install felix felix/deploy/helm/felix -f felix-values.yaml
    ```
 
-3. This chart, with your provider and rooms. Its seed Job stores the broker
-   credential in the Secret `felix-canvas-broker-credential`:
+3. This chart, from the release, with your provider and rooms. Its seed Job
+   stores the broker credential in the Secret `felix-canvas-broker-credential`.
+   Each release also attaches the chart as `felix-canvas-0.1.0.tgz`, which
+   `helm install` takes in place of the `oci://` reference:
 
    ```bash
-   helm install felix-canvas deploy/helm/felix-canvas -f canvas-values.yaml
+   helm install felix-canvas oci://ghcr.io/gabloe/charts/felix-canvas --version 0.1.0 -f canvas-values.yaml
    kubectl wait --for=condition=complete job -l app.kubernetes.io/component=seed
    ```
 
