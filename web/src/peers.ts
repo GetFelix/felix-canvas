@@ -1,4 +1,4 @@
-import type { Presence } from "@felix-canvas/model";
+import { randomSessionId, type Presence } from "@felix-canvas/model";
 
 import type { Camera } from "./render.js";
 
@@ -16,6 +16,12 @@ export const PEER_COLORS = [
   "hsl(312, 68%, 58%)",
   "hsl(344, 78%, 60%)",
 ];
+
+/** The palette slot for a colour index from the wire, which may be any integer. */
+export function paletteIndex(color: number): number {
+  const size = PEER_COLORS.length;
+  return ((Math.trunc(color) % size) + size) % size;
+}
 
 const NAMES = [
   "Otter",
@@ -35,6 +41,12 @@ const NAMES = [
 /** Gone if nothing arrives for this long; sessions send a heartbeat every few seconds. */
 const EXPIRE_MS = 10_000;
 const IDLE_MS = 10_000;
+/** Matches the cursor's opacity transition, so a leaving cursor fades out first. */
+const FADE_MS = 400;
+const NAME_KEY = "felix-canvas.name";
+const PERSON_KEY = "felix-canvas.person";
+/** Longer names are cut so a cursor's name pill stays small. */
+export const MAX_NAME = 24;
 /** The spring's angular frequency: settles in about 80 ms. */
 const OMEGA = 50;
 /** Jumps longer than this on screen snap instead of sweeping across the canvas. */
@@ -43,13 +55,35 @@ const SNAP_PX = 800;
 /** A name for this browser, kept between visits. */
 export function ownName(): string {
   try {
-    const saved = localStorage.getItem("felix-canvas.name");
+    const saved = localStorage.getItem(NAME_KEY)?.trim().slice(0, MAX_NAME);
     if (saved) return saved;
     const name = NAMES[Math.floor(Math.random() * NAMES.length)]!;
-    localStorage.setItem("felix-canvas.name", name);
+    localStorage.setItem(NAME_KEY, name);
     return name;
   } catch {
     return NAMES[0]!;
+  }
+}
+
+/** This browser's person id, kept between visits so its colour stays the same. */
+export function ownPersonId(): bigint {
+  try {
+    const saved = localStorage.getItem(PERSON_KEY);
+    if (saved && /^[0-9a-f]{16}$/.test(saved)) return BigInt(`0x${saved}`);
+    const person = randomSessionId();
+    localStorage.setItem(PERSON_KEY, person.toString(16).padStart(16, "0"));
+    return person;
+  } catch {
+    return randomSessionId();
+  }
+}
+
+/** Keep `name` for this browser's next visits. */
+export function saveName(name: string): void {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {
+    // Private windows may refuse storage; the name still applies to this visit.
   }
 }
 
@@ -61,13 +95,14 @@ export interface Peer {
   colorIndex: number;
   selection: bigint[];
   idle: boolean;
+  /** When the pointer last moved, on the `performance.now()` clock. */
+  lastMove: number;
 }
 
 interface Tracked extends Peer {
   target: { x: number; y: number } | null;
   shown: { x: number; y: number };
   velocity: { x: number; y: number };
-  lastMove: number;
   lastSeen: number;
   element: HTMLElement;
 }
@@ -95,8 +130,7 @@ export class Peers {
       if (existing) this.#remove(existing);
       return existing !== undefined;
     }
-    const colorIndex =
-      ((presence.color % PEER_COLORS.length) + PEER_COLORS.length) % PEER_COLORS.length;
+    const colorIndex = paletteIndex(presence.color);
     const color = PEER_COLORS[colorIndex]!;
     const peer = existing ?? this.#add(presence, color, now);
     const changed =
@@ -117,22 +151,6 @@ export class Peers {
     peer.element.style.setProperty("--peer", color);
     peer.element.querySelector(".cursor-name")!.textContent = presence.name;
     return changed;
-  }
-
-  /**
-   * The palette index for this session: its hash, moved on to the next free
-   * colour while a session with a smaller id already has it, so every
-   * client settles on the same assignment.
-   */
-  colorFor(sid: bigint): number {
-    const taken = new Set(
-      [...this.#peers.values()].filter((peer) => peer.sid < sid).map((peer) => peer.colorIndex),
-    );
-    let index = Number(sid % BigInt(PEER_COLORS.length));
-    for (let i = 0; i < PEER_COLORS.length && taken.has(index); i++) {
-      index = (index + 1) % PEER_COLORS.length;
-    }
-    return index;
   }
 
   /**
@@ -206,7 +224,8 @@ export class Peers {
   }
 
   #remove(peer: Tracked): void {
-    peer.element.remove();
+    peer.element.classList.add("hidden");
+    setTimeout(() => peer.element.remove(), FADE_MS);
     this.#peers.delete(peer.sid);
   }
 }

@@ -1,7 +1,9 @@
 import { encodeOp, randomSessionId, type Op } from "@felix-canvas/model";
 import { expect, test } from "@playwright/test";
 
-import { hashes, join, read, settle } from "./helpers";
+import { hashes, join, leaveAll, read, settle } from "./helpers";
+
+test.afterEach(leaveAll);
 
 const GATEWAY = "ws://127.0.0.1:8787/ws";
 const SNAPSHOTTER = "http://127.0.0.1:8788/";

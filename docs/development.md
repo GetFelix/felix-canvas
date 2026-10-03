@@ -42,8 +42,9 @@ a Codespace.
 
 `dev/up.sh` starts the broker and control plane from
 `ghcr.io/gabloe/felix-broker` and `felix-controlplane` at the version pinned in
-`dev/docker-compose.yml`, creates the room's streams and the `canvas.seq` and
-`canvas.snap` caches, and writes the gateway's and the snapshotter's tokens and
+`dev/docker-compose.yml`, creates the room's streams and the single-shard
+`canvas.seq`, `canvas.snap` and `canvas.presence` caches (a prefix watch reads
+one shard, and the member list is one), and writes the gateway's and the snapshotter's tokens and
 the broker's certificate to `dev/state/`. Every run starts from an empty log.
 
 The snapshotter reads the same `CANVAS_*` variables as the gateway, with its own
@@ -71,7 +72,7 @@ Three settings there exist only because of Felix gaps, each filed upstream:
 | Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
 | Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it |
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
-| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, and a cold browser joining a 10,000-op room |
+| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, and a cold browser joining a 10,000-op room, and two people seeing each other's cursors and member list. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 
 ## Milestones and issues
 
