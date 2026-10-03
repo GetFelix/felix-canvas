@@ -1,9 +1,12 @@
 import type { FieldValue, ShapeState, ShapeType } from "@felix-canvas/model";
 
+import { BOX_PADDING, type TextLayout } from "./textlayout.js";
+
 /**
  * A shape as the renderer and tools see it. Rectangles and ellipses fill
  * `x, y, w, h`; a line runs from `x, y` to `x + w, y + h`; a stroke's points
- * are pairs relative to `x, y`, with `w, h` its extent.
+ * are pairs relative to `x, y`, with `w, h` its extent. A text box's height,
+ * and its width when it grows with its text, come from its layout.
  */
 export interface Shape {
   id: bigint;
@@ -14,6 +17,10 @@ export interface Shape {
   h: number;
   z: string;
   points: number[];
+  /** A text box with no set width, which grows with its longest line. */
+  grows: boolean;
+  /** The shape's text laid out, when it has any or is a text box. */
+  text: TextLayout | null;
 }
 
 export interface Box {
@@ -44,6 +51,8 @@ export function readShape(id: bigint, state: ShapeState): Shape {
     h: number(fields.h),
     z: typeof fields.z === "string" ? fields.z : "",
     points,
+    grows: fields.type === "text" && !(number(fields.w) > 0),
+    text: null,
   };
 }
 
@@ -136,6 +145,13 @@ export function handles(shape: Shape): [Handle, number, number][] {
   }
   if (shape.type === "stroke") return [];
   const { x, y, w, h } = bounds(shape);
+  // A text box's height follows its text, so only its width can change.
+  if (shape.type === "text") {
+    return [
+      ["w", x, y + h / 2],
+      ["e", x + w, y + h / 2],
+    ];
+  }
   return [
     ["nw", x, y],
     ["n", x + w / 2, y],
@@ -184,4 +200,11 @@ export function handleCursor(handle: Handle): string {
     default:
       return "move";
   }
+}
+
+/** Where a shape's text starts: a text box's corner, or inside a box, centred vertically. */
+export function textOrigin(shape: Shape): { x: number; y: number } {
+  if (shape.type === "text" || !shape.text) return { x: shape.x, y: shape.y };
+  const box = bounds(shape);
+  return { x: box.x + BOX_PADDING, y: box.y + (box.h - shape.text.height) / 2 };
 }

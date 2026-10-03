@@ -8,7 +8,9 @@ import {
   encodePresence,
   randomSessionId,
   type FieldValue,
+  type Doc,
   type Member,
+  type Op,
   type OpKind,
   type Presence,
 } from "@felix-canvas/model";
@@ -95,6 +97,8 @@ export class Session {
   readonly ackTrips = new RoundTrips();
   /** Another session's edit, from when it was made to the frame that drew it here, by the wall clock. */
   readonly peerEditTrips = new RoundTrips();
+  /** The same for typing, from the first keystroke an op carries. */
+  readonly peerTextTrips = new RoundTrips();
   /** The same on the presence stream. */
   readonly cursorTrips = new RoundTrips();
   room: { namespace: string; room: string } | null = null;
@@ -120,6 +124,10 @@ export class Session {
   onStatusChange: () => void = () => {};
   /** Called for each presence message from another session. */
   onPresence: (presence: Presence) => void = () => {};
+  /** Called with each op as it enters the confirmed state. */
+  onApply: (op: Op) => void = () => {};
+  /** Called when the confirmed state was replaced by a snapshot to rejoin from. */
+  onRejoin: (doc: Doc) => void = () => {};
   /** Called when someone joined or left the member list, or changed name or colour. */
   onMembersChange: () => void = () => {};
 
@@ -148,7 +156,7 @@ export class Session {
   #member: Member | null = null;
   #refresh: { worker: Worker; everyMs: number } | null = null;
   /** When each live edit from another session applied since the last frame was made. */
-  #undrawn: number[] = [];
+  #undrawn: { at: number; text: boolean }[] = [];
 
   constructor(
     url: string,
@@ -159,13 +167,14 @@ export class Session {
     this.#join = join;
     this.#open = open;
     this.replica.onApply = (op) => {
+      this.onApply(op);
       if (
         op.sid !== this.sid &&
         op.at !== undefined &&
         this.caughtUp &&
         this.#undrawn.length < 600
       ) {
-        this.#undrawn.push(op.at);
+        this.#undrawn.push({ at: op.at, text: op.kind === "text" });
       }
     };
   }
@@ -178,7 +187,9 @@ export class Session {
   /** Note that a frame showing the replica as it is now has been drawn. */
   drawn(): void {
     const now = Date.now();
-    for (const at of this.#undrawn) this.peerEditTrips.add(now - at);
+    for (const { at, text } of this.#undrawn) {
+      (text ? this.peerTextTrips : this.peerEditTrips).add(now - at);
+    }
     this.#undrawn = [];
   }
 
@@ -238,6 +249,15 @@ export class Session {
     this.throttled = throttled;
     this.#client?.throttle(throttled ? THROTTLE_BITS_PER_SECOND : null);
     this.onStatusChange();
+  }
+
+  /**
+   * Start again from the snapshot, as when the log no longer holds this
+   * replica's place. Unsent edits stay.
+   */
+  rebuild(): void {
+    this.#startRebuild();
+    if (this.#client) this.#subscribeOps(this.#client);
   }
 
   /** Leave the member list at once, for a tab that is closing. */
@@ -394,6 +414,7 @@ export class Session {
       const doc = snapshot?.doc ?? EMPTY_DOC;
       const next = snapshot ? snapshot.offset + 1 : 0;
       this.#confirmed(this.replica.reset(doc, next));
+      this.onRejoin(doc);
       this.snapshotOffset = snapshot?.offset ?? null;
       this.hasFrame ||= snapshot !== null;
       this.tail = Math.max(this.tail, this.replica.next - 1);

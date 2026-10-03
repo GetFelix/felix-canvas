@@ -20,8 +20,9 @@ test("scrubbing a 10,000-change room shows exactly what the log held at each cha
   browser,
 }) => {
   test.setTimeout(240_000);
-  // The studio room is this test's alone, so its history is the changes written here.
-  const tail = await busyRoom(10_000, 10, "studio");
+  // The studio room is this test's alone, so its history is the changes
+  // written here: half of them typing into 50 text boxes.
+  const tail = await busyRoom(10_000, 10, "studio", { text: true });
   const page = await open(browser, { room: "studio" });
   await expect(page.locator("#joining")).toBeHidden({ timeout: 60_000 });
   await expect.poll(async () => (await read(page)).applied, { timeout: 60_000 }).toBe(tail + 1);

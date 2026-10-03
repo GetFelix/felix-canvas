@@ -1,12 +1,19 @@
 import { stateHash } from "@felix-canvas/model";
 import {
+  ALargeSmall,
+  Bold,
   Check,
+  ChevronDown,
   Circle,
   ExternalLink,
   EyeOff,
   Hand,
+  Heading,
+  Italic,
   Keyboard,
   Link,
+  List,
+  ListOrdered,
   Lock,
   LogOut,
   Minus,
@@ -18,6 +25,8 @@ import {
   Slash,
   Square,
   Sun,
+  Type,
+  Underline,
   X,
   createIcons,
 } from "lucide";
@@ -98,13 +107,20 @@ export class Chrome {
     this.#name = name;
     createIcons({
       icons: {
+        ALargeSmall,
+        Bold,
         Check,
+        ChevronDown,
         Circle,
         ExternalLink,
         EyeOff,
         Hand,
+        Heading,
+        Italic,
         Keyboard,
         Link,
+        List,
+        ListOrdered,
         Lock,
         LogOut,
         Minus,
@@ -112,19 +128,21 @@ export class Chrome {
         Moon,
         MousePointer2,
         Pencil,
+        Type,
         Plus,
         Slash,
         Square,
         Sun,
+        Underline,
         X,
       },
     });
     if (!/Mac|iPhone|iPad/.test(navigator.platform)) {
       for (const node of document.querySelectorAll("kbd, [data-key]")) {
         if (node instanceof HTMLElement && node.dataset.key) {
-          node.dataset.key = node.dataset.key.replace("⌘", "Ctrl");
+          node.dataset.key = node.dataset.key.replaceAll("⌘", "Ctrl").replaceAll("⌥", "Alt");
         } else if (node.textContent) {
-          node.textContent = node.textContent.replace("⌘", "Ctrl ");
+          node.textContent = node.textContent.replaceAll("⌘", "Ctrl ").replaceAll("⌥", "Alt ");
         }
       }
     }

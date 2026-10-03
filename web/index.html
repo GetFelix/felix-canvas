@@ -17,6 +17,7 @@
   <body>
     <main id="app">
       <canvas id="canvas" aria-label="Canvas"></canvas>
+      <div id="text-layer" class="text-layer"></div>
       <div id="cursors" class="cursors" aria-hidden="true"></div>
 
       <section id="joining" class="card joining">
@@ -52,7 +53,7 @@
         <h1>Start drawing</h1>
         <p>
           Everything you draw is saved and shared, so everyone here sees the same canvas. Press
-          <kbd>R</kbd> for a rectangle or <kbd>P</kbd> for the pen.
+          <kbd>R</kbd> for a rectangle, <kbd>T</kbd> for text or <kbd>P</kbd> for the pen.
         </p>
       </section>
 
@@ -248,7 +249,172 @@
         <button data-tool="pen" data-tip="Pen" data-key="P" aria-label="Pen">
           <i data-lucide="pencil"></i>
         </button>
+        <button data-tool="text" data-tip="Text" data-key="T" aria-label="Text">
+          <i data-lucide="type"></i>
+        </button>
       </nav>
+
+      <div id="text-bar" class="island text-bar" role="toolbar" aria-label="Text" hidden>
+        <button
+          id="text-block"
+          class="text-menu-button"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          aria-controls="text-block-menu"
+          data-tip="Text style"
+          aria-label="Text style"
+        >
+          <i data-lucide="heading"></i><i class="chevron" data-lucide="chevron-down"></i>
+        </button>
+        <span class="divider" aria-hidden="true"></span>
+        <button
+          data-format="b"
+          data-tip="Bold"
+          data-key="⌘B"
+          aria-label="Bold"
+          aria-pressed="false"
+        >
+          <i data-lucide="bold"></i>
+        </button>
+        <button
+          data-format="i"
+          data-tip="Italic"
+          data-key="⌘I"
+          aria-label="Italic"
+          aria-pressed="false"
+        >
+          <i data-lucide="italic"></i>
+        </button>
+        <button
+          data-format="u"
+          data-tip="Underline"
+          data-key="⌘U"
+          aria-label="Underline"
+          aria-pressed="false"
+        >
+          <i data-lucide="underline"></i>
+        </button>
+        <span class="divider" aria-hidden="true"></span>
+        <button
+          id="text-link"
+          data-tip="Link"
+          data-key="⌘K"
+          aria-label="Link"
+          aria-pressed="false"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+        >
+          <i data-lucide="link"></i>
+        </button>
+        <span class="divider" aria-hidden="true"></span>
+        <button
+          data-list="ul"
+          data-tip="Bulleted list"
+          data-key="⌘⇧8"
+          aria-label="Bulleted list"
+          aria-pressed="false"
+        >
+          <i data-lucide="list"></i>
+        </button>
+        <button
+          data-list="ol"
+          data-tip="Numbered list"
+          data-key="⌘⇧7"
+          aria-label="Numbered list"
+          aria-pressed="false"
+        >
+          <i data-lucide="list-ordered"></i>
+        </button>
+        <span class="divider" aria-hidden="true"></span>
+        <button
+          id="text-size"
+          class="text-menu-button"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          aria-controls="text-size-menu"
+          data-tip="Size"
+          data-key="⌘⇧. ⌘⇧,"
+          aria-label="Size"
+        >
+          <i data-lucide="a-large-small"></i><i class="chevron" data-lucide="chevron-down"></i>
+        </button>
+        <button
+          id="text-color"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          aria-controls="text-color-menu"
+          data-tip="Colour"
+          aria-label="Colour"
+        >
+          <span class="swatch" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <div id="text-block-menu" class="menu text-menu" role="menu" aria-label="Text style" hidden>
+        <button role="menuitemradio" data-block="p" class="block-p">
+          <span>Text</span><kbd>⌘⌥0</kbd>
+        </button>
+        <button role="menuitemradio" data-block="1" class="block-h1">
+          <span>Heading 1</span><kbd>⌘⌥1</kbd>
+        </button>
+        <button role="menuitemradio" data-block="2" class="block-h2">
+          <span>Heading 2</span><kbd>⌘⌥2</kbd>
+        </button>
+        <button role="menuitemradio" data-block="3" class="block-h3">
+          <span>Heading 3</span><kbd>⌘⌥3</kbd>
+        </button>
+      </div>
+
+      <div id="text-size-menu" class="menu text-menu" role="menu" aria-label="Size" hidden>
+        <button role="menuitemradio" data-size="small">
+          <span style="font-size: 12px">Small</span>
+        </button>
+        <button role="menuitemradio" data-size="medium">
+          <span style="font-size: 16px">Medium</span>
+        </button>
+        <button role="menuitemradio" data-size="large">
+          <span style="font-size: 20px">Large</span>
+        </button>
+        <button role="menuitemradio" data-size="huge">
+          <span style="font-size: 28px">Huge</span>
+        </button>
+      </div>
+
+      <div
+        id="text-color-menu"
+        class="menu color-menu"
+        role="menu"
+        aria-label="Colour"
+        hidden
+      ></div>
+
+      <section
+        id="link-popover"
+        class="popover link-popover"
+        role="dialog"
+        aria-label="Link"
+        hidden
+      >
+        <input
+          id="link-address"
+          type="url"
+          placeholder="Paste or type an address"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Address"
+        />
+        <div class="link-actions">
+          <button id="link-remove" class="button">Remove link</button>
+          <button id="link-apply" class="button">Apply</button>
+        </div>
+      </section>
+
+      <div id="link-hover" class="popover link-hover" hidden>
+        <span id="link-hover-address" class="mono"></span>
+        <button id="link-hover-open" class="button">Open</button>
+      </div>
+
+      <div id="link-tip" class="tooltip link-tip" role="tooltip"></div>
 
       <div class="island history-island">
         <button id="history-button" data-tip="History" data-key="⌘⇧H" aria-label="History">
@@ -345,6 +511,14 @@
               <dd><kbd>P</kbd> or <kbd>D</kbd></dd>
             </div>
             <div>
+              <dt>Text</dt>
+              <dd><kbd>T</kbd></dd>
+            </div>
+            <div>
+              <dt>Edit text</dt>
+              <dd><kbd>↵</kbd> or double-click</dd>
+            </div>
+            <div>
               <dt>Back to select, deselect</dt>
               <dd><kbd>Esc</kbd></dd>
             </div>
@@ -377,6 +551,40 @@
             <div>
               <dt>Hide interface</dt>
               <dd><kbd>⌘\</kbd></dd>
+            </div>
+          </dl>
+          <dl>
+            <div>
+              <dt>Bold, italic, underline</dt>
+              <dd><kbd>⌘B</kbd> <kbd>⌘I</kbd> <kbd>⌘U</kbd></dd>
+            </div>
+            <div>
+              <dt>Link, while typing</dt>
+              <dd><kbd>⌘K</kbd></dd>
+            </div>
+            <div>
+              <dt>Heading 1 to 3, plain text</dt>
+              <dd><kbd>⌘⌥1</kbd> to <kbd>⌘⌥3</kbd>, <kbd>⌘⌥0</kbd></dd>
+            </div>
+            <div>
+              <dt>Bulleted, numbered list</dt>
+              <dd><kbd>⌘⇧8</kbd> <kbd>⌘⇧7</kbd></dd>
+            </div>
+            <div>
+              <dt>Indent, outdent a list item</dt>
+              <dd><kbd>Tab</kbd> <kbd>⇧Tab</kbd></dd>
+            </div>
+            <div>
+              <dt>Larger, smaller text</dt>
+              <dd><kbd>⌘⇧.</kbd> <kbd>⌘⇧,</kbd></dd>
+            </div>
+            <div>
+              <dt>Heading or list as you type</dt>
+              <dd><kbd>#</kbd> <kbd>-</kbd> <kbd>1.</kbd></dd>
+            </div>
+            <div>
+              <dt>Open a link on the canvas</dt>
+              <dd><kbd>⌘</kbd> click</dd>
             </div>
           </dl>
           <dl>

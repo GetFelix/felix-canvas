@@ -27,8 +27,16 @@ describe("encodePresence and decodePresence", () => {
       { ...cursor, cursor: null, selection: [] },
       { ...cursor, gone: true },
       { ...cursor, applied: 9222 },
+      { ...cursor, text: { shape: 7n, anchor: new Uint8Array([1, 2]), head: new Uint8Array([3]) } },
     ]) {
       expect(decodePresence(encodePresence(presence))).toEqual(presence);
+    }
+  });
+
+  it("ignore a text selection that is malformed", () => {
+    const valid = { sid: 1, n: 0, name: "a", color: 0, x: 0, y: 0, sel: [] };
+    for (const txt of [7, [new Uint8Array(15), new Uint8Array(1), new Uint8Array(1)], ["a"]]) {
+      expect(decodePresence(encode({ ...valid, txt })).text).toBeUndefined();
     }
   });
 

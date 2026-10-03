@@ -148,7 +148,7 @@ this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
 | Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
 | Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it, including the narrowing test: a token for one room is refused by the broker on another room's streams, counters, snapshot and member list |
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
-| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, and a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
+| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound, two people typing into one text box at once and ending with the same text, the canvas breaking a fixed set of bodies into the same lines as the editor, every control and shortcut of the text bar in both themes, pasted HTML keeping only the formats text can have, carets staying on their characters while others type, and an open editor keeping its caret and unsent typing through a rejoin from the snapshot. The history, cold-join and slow-connection tests have typing in their load. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 | Failover against a Felix cluster | Starts the three-broker stack and runs `web/e2e/failover.e2e.ts`: two browsers edit while a third watches the room's history, the broker that owns the room's op log is killed, and both editors end with the same state hash, which is also the fold of the log read back from offset 0. Every edit a browser saw acknowledged is in that log, the history view reaches the same state, the snapshotter carries on, and a browser that joins afterwards matches. It is a separate job, and not a required check, because it needs three brokers and stops one |
 | Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page and once with Dex. On a `v*` tag it pushes, merges and signs the images first and runs the install from GHCR. On pull requests it also installs the Felix chart and this chart on kind and runs the same test through it |
 
@@ -164,7 +164,7 @@ export CANVAS_FELIX_CA_FILE=$PWD/dev/state/broker-cert.pem
 cargo build --release -p felix-canvas-gateway --bin felix-canvas-gateway --example viewers
 target/release/felix-canvas-gateway &
 
-# Local echo, edit and cursor visibility, snapshot lag and a cold join.
+# Local echo, edit, typing and cursor visibility, snapshot lag and cold joins.
 CANVAS_MEASURE=1 npm run test:e2e -w @felix-canvas/web -- targets
 
 # Publish latency with 1 viewer and with 500.
@@ -180,6 +180,9 @@ records the numbers and the machine they came from.
 | Edit visible to another client | From the edit being made (the `at` time stamp in its op) to the end of drawing the frame that shows it in the other browser. Both browsers share one clock |
 | Cursor visible to another client | A browser's own presence message, from publish to its delivery back, which is the path every other viewer's copy takes |
 | Join a 10,000-change room | From starting to join until the first frame drawn from the snapshot plus the changes after it |
+| Keystroke to own character | From the key event reaching the editor to the animation frame after ProseMirror applied it |
+| Typed text visible to another client | From the first keystroke a text op carries (its `at`) to the end of drawing the frame that shows it in the other browser, so it includes the 150 ms the editor waits to send |
+| Text ops per typing person | The author's text ops in the log over a 30-second run at ten keys a second |
 | Snapshot lag | The newest change's offset minus the offset the stored snapshot holds, sampled while a writer adds 300 changes a second |
 | Fanout | The editing browser's publish to Felix's acknowledgement, alternating 1 viewer and the full count three times |
 

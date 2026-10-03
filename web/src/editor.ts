@@ -1,7 +1,16 @@
-import { keyBetween, randomShapeId, type Doc, type FieldValue } from "@felix-canvas/model";
+import {
+  FONT_SIZES,
+  TEXT_SHAPES,
+  keyBetween,
+  randomShapeId,
+  type Doc,
+  type FieldValue,
+} from "@felix-canvas/model";
 
 import type { Camera } from "./render.js";
 import type { Session } from "./session.js";
+import type { TextEditor } from "./texteditor.js";
+import { LINE_HEIGHT, linkAt } from "./textlayout.js";
 import {
   bounds,
   handleCursor,
@@ -10,13 +19,14 @@ import {
   intersects,
   normalize,
   resize,
+  textOrigin,
   union,
   type Box,
   type Handle,
   type Shape,
 } from "./shapes.js";
 
-export type Tool = "select" | "hand" | "rect" | "ellipse" | "line" | "pen";
+export type Tool = "select" | "hand" | "rect" | "ellipse" | "line" | "pen" | "text";
 
 interface Point {
   x: number;
@@ -56,6 +66,8 @@ export class Editor {
   dragging = false;
   /** Whether only the camera may move, as while looking at history. */
   readOnly = false;
+  /** The address of a link in text under the pointer, which Cmd+click opens. */
+  hoverLink: string | null = null;
 
   /** Called when anything drawn changed. */
   onChange: () => void = () => {};
@@ -67,14 +79,34 @@ export class Editor {
   readonly #canvas: HTMLCanvasElement;
   readonly #session: Session;
   readonly #shapes: () => Shape[];
+  readonly #text: TextEditor;
   #gesture: Gesture | null = null;
   #space = false;
   #animation = 0;
 
-  constructor(canvas: HTMLCanvasElement, session: Session, shapes: () => Shape[]) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    session: Session,
+    shapes: () => Shape[],
+    text: TextEditor,
+  ) {
     this.#canvas = canvas;
     this.#session = session;
     this.#shapes = shapes;
+    this.#text = text;
+    text.onClose = (id, abandoned) => {
+      this.selection.clear();
+      // A new text box left empty goes; anything else stays selected, so a second Esc deselects.
+      if (abandoned) this.#submit("delete", id, {});
+      else this.selection.add(id);
+      this.onStateChange();
+      this.onChange();
+    };
+    canvas.addEventListener("dblclick", (event) => {
+      if (this.readOnly || this.tool !== "select") return;
+      const shape = this.#topAt(this.#world(this.#screen(event)));
+      if (shape && TEXT_SHAPES.includes(shape.type)) this.editText(shape, { at: event });
+    });
     canvas.addEventListener("pointerdown", (event) => this.#down(event));
     canvas.addEventListener("pointermove", (event) => this.#move(event));
     canvas.addEventListener("pointerup", (event) => this.#up(event));
@@ -83,6 +115,7 @@ export class Editor {
       if (this.#gesture) return;
       this.pointer = null;
       this.hover = null;
+      this.hoverLink = null;
       this.onChange();
     });
     canvas.addEventListener("wheel", (event) => this.#wheel(event), { passive: false });
@@ -97,6 +130,7 @@ export class Editor {
 
   setTool(tool: Tool): void {
     this.tool = tool;
+    this.#text.close();
     this.cancel();
     if (tool !== "select") this.selection.clear();
     this.#updateCursor();
@@ -107,6 +141,7 @@ export class Editor {
   /** Allow edits, or stop them and let the pointer only pan. */
   setReadOnly(readOnly: boolean): void {
     this.readOnly = readOnly;
+    this.#text.close();
     this.selection.clear();
     this.hover = null;
     this.cancel();
@@ -126,8 +161,7 @@ export class Editor {
   /** Put the world point at the centre of the canvas, at 100%. */
   centre(x: number, y: number): void {
     const { width, height } = this.#size();
-    this.camera = { x: x - width / 2, y: y - height / 2, zoom: 1 };
-    this.onStateChange();
+    this.#setCamera({ x: x - width / 2, y: y - height / 2, zoom: 1 });
   }
 
   /** Zoom by `factor` around a screen point, the canvas centre by default. */
@@ -163,9 +197,22 @@ export class Editor {
     });
   }
 
+  /** Edit the text of `shape`, which keeps it selected. */
+  editText(shape: Shape, options: Parameters<TextEditor["open"]>[2] = {}): void {
+    this.selection.clear();
+    this.selection.add(shape.id);
+    this.#text.open(shape, this.camera, options);
+    this.onStateChange();
+    this.onChange();
+  }
+
   /** Drop selected ids that no longer exist. Call after the view changes. */
   prune(): void {
     const present = new Set(this.#shapes().map((shape) => shape.id));
+    // Someone else deleted the shape being edited. While rejoining, the canvas
+    // can be older than the shape for a moment, which is not that.
+    const gone = this.#text.shape !== null && !present.has(this.#text.shape);
+    if (gone && this.#session.caughtUp) this.#text.close();
     let changed = false;
     for (const id of this.selection) {
       if (!present.has(id)) changed = this.selection.delete(id);
@@ -213,8 +260,15 @@ export class Editor {
     if (event.button === 2) return;
     this.#canvas.setPointerCapture(event.pointerId);
     cancelAnimationFrame(this.#animation);
+    // A click outside the text being edited stops editing, then acts as usual.
+    this.#text.close();
     const screen = this.#screen(event);
     const point = this.#world(screen);
+    const link = (event.metaKey || event.ctrlKey) && event.button === 0 && this.#linkAt(point);
+    if (link) {
+      window.open(link, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (event.button === 1 || this.tool === "hand" || this.#space || this.readOnly) {
       this.#gesture = { kind: "pan", from: screen, camera: { ...this.camera } };
       this.#canvas.style.cursor = "grabbing";
@@ -248,6 +302,18 @@ export class Editor {
           id: shape.id,
           toggle: wasSelected && event.shiftKey,
         };
+        this.onChange();
+        return;
+      }
+      case "text": {
+        const shape = this.#topAt(point);
+        if (shape && TEXT_SHAPES.includes(shape.type)) {
+          this.editText(shape, { at: event });
+          this.setToolQuietly("select");
+          return;
+        }
+        this.#gesture = { kind: "draw", from: point, screen };
+        this.draft = this.#drawn(point, point, false);
         this.onChange();
         return;
       }
@@ -379,6 +445,10 @@ export class Editor {
         let draft = this.draft;
         this.draft = null;
         if (!draft) break;
+        if (draft.type === "text") {
+          this.#createText(draft, travelled < DRAG_THRESHOLD);
+          break;
+        }
         if (travelled < DRAG_THRESHOLD) {
           if (draft.type === "line") break;
           draft = { ...draft, x: gesture.from.x - 60, y: gesture.from.y - 40, w: 120, h: 80 };
@@ -458,10 +528,19 @@ export class Editor {
       l: "line",
       p: "pen",
       d: "pen",
+      t: "text",
     };
     const tool = event.altKey ? undefined : tools[event.key.toLowerCase()];
     if (tool && !event.shiftKey) return this.setTool(tool);
     switch (event.key) {
+      case "Enter": {
+        const [only] = this.selection;
+        const shape = this.#shapes().find((candidate) => candidate.id === only);
+        if (this.selection.size !== 1 || !shape || !TEXT_SHAPES.includes(shape.type)) return;
+        event.preventDefault();
+        this.editText(shape, { selectAll: true });
+        return;
+      }
       case "Escape":
         if (this.#gesture) return this.cancel();
         this.selection.clear();
@@ -509,7 +588,16 @@ export class Editor {
     return true;
   }
 
+  /** The address of a link in shape text at world `point`, if there is one. */
+  #linkAt(point: Point): string | null {
+    const shape = this.#topAt(point);
+    if (!shape?.text) return null;
+    const origin = textOrigin(shape);
+    return linkAt(shape.text, point.x - origin.x, point.y - origin.y);
+  }
+
   #hoverAt(screen: Point, point: Point): void {
+    this.hoverLink = this.#space ? null : this.#linkAt(point);
     if (this.tool !== "select" || this.#space || this.readOnly) {
       this.hover = null;
       return;
@@ -523,13 +611,15 @@ export class Editor {
     const canvas = this.#canvas;
     if (this.#space || this.tool === "hand" || this.readOnly) canvas.style.cursor = "grab";
     else if (this.tool === "select") canvas.style.cursor = "";
+    else if (this.tool === "text") canvas.style.cursor = "text";
     else canvas.style.cursor = "crosshair";
   }
 
   #drawn(from: Point, to: Point, constrain: boolean): Shape {
     let w = to.x - from.x;
     let h = to.y - from.y;
-    const type = this.tool === "ellipse" || this.tool === "line" ? this.tool : "rect";
+    const type =
+      this.tool === "ellipse" || this.tool === "line" || this.tool === "text" ? this.tool : "rect";
     if (constrain && type === "line") {
       const angle = Math.round(Math.atan2(h, w) / (Math.PI / 12)) * (Math.PI / 12);
       const length = Math.hypot(w, h);
@@ -542,7 +632,38 @@ export class Editor {
     }
     const box =
       type === "line" ? { x: from.x, y: from.y, w, h } : normalize({ x: from.x, y: from.y, w, h });
-    return { id: this.draft?.id ?? randomShapeId(), type, ...box, z: "", points: [] };
+    return {
+      id: this.draft?.id ?? randomShapeId(),
+      type,
+      ...box,
+      z: "",
+      points: [],
+      grows: false,
+      text: null,
+    };
+  }
+
+  /**
+   * Make a text box from the text tool's gesture and start typing in it: a
+   * click makes one that grows as you type, with the first line centred on
+   * the click; a drag sets its width.
+   */
+  #createText(draft: Shape, click: boolean): void {
+    const line = FONT_SIZES.medium * LINE_HEIGHT;
+    const fields = click
+      ? { type: "text", x: Math.round(draft.x), y: Math.round(draft.y - line / 2), w: 0 }
+      : { type: "text", x: Math.round(draft.x), y: Math.round(draft.y), w: Math.round(draft.w) };
+    if (!this.#create(draft.id, fields)) return;
+    this.setToolQuietly("select");
+    const shape = this.#shapes().find((candidate) => candidate.id === draft.id);
+    if (shape) this.editText(shape, { fresh: true });
+  }
+
+  /** Change tool without stopping the text being edited. */
+  setToolQuietly(tool: Tool): void {
+    this.tool = tool;
+    this.#updateCursor();
+    this.onStateChange();
   }
 
   #create(id: bigint, fields: Record<string, FieldValue>): boolean {
@@ -667,6 +788,8 @@ function penShape(id: bigint, absolute: number[]): Shape {
     h: round1(Math.max(...ys) - y),
     z: "",
     points: absolute.map((value, i) => round1(value - (i % 2 === 0 ? x : y))),
+    grows: false,
+    text: null,
   };
 }
 

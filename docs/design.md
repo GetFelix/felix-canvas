@@ -304,8 +304,10 @@ this tab is editing it.
 - Esc, a click outside the shape or choosing another tool closes it, and the canvas draws the body again.
 - A tab edits one body at a time.
 
-A text shape's width is a field like any other. Its height follows its
-content: every replica computes it from the same layout, so it is not stored.
+A text shape's width is a field like any other, and a width of 0 makes the box
+grow with its longest line, as a box made with a click does; dragging with the
+text tool, or a handle, sets a width. Its height follows its content: every
+replica computes it from the same layout, so it is not stored.
 In a rectangle or ellipse the text wraps to the box less a padding of 8 canvas
 units, is centred vertically, and runs past the box when it does not fit.
 
@@ -315,7 +317,7 @@ Viewers who are not editing see a body drawn by `web/src/textlayout.ts`, a
 small layout engine for this schema:
 
 1. Walk the body's derived content into blocks and runs, each run with one font, size, colour and decoration.
-2. Break lines greedily at the word boundaries `Intl.Segmenter` gives, measuring with `measureText` in the run's font. A word wider than the line breaks by character.
+2. Break lines greedily at the word boundaries `Intl.Segmenter` gives, measuring with `measureText` in the run's font. Only the boundaries CSS also breaks at count: after a space, after a hyphen between letters, and around an ideograph. Trailing spaces hang past the edge, as `pre-wrap` makes them. A word wider than the line breaks by character.
 3. Draw runs with `fillText`, underlines and link underlines as thin rectangles, list markers in the gutter.
 
 Layout happens in canvas units at the body's own size, and the camera transform
@@ -326,8 +328,12 @@ Inter to load, and a font load clears the cache.
 The editor and the canvas must wrap the same way, or text jumps when the
 editor opens. The editor's CSS matches the layout's rules (Inter, the same line
 heights, `white-space: pre-wrap`, `overflow-wrap: anywhere`, kerning on in
-both), and an end-to-end test compares the two line by line on a fixed set of
-bodies. Mixed-direction text is laid out run by run, without full
+both, and none of the font features the rest of the interface turns on), and
+an end-to-end test compares the two line by line, and their heights, on a
+fixed set of bodies. A line with several sizes on it takes its height from
+each font's ascent and descent, rounded as Blink rounds them, so mixed sizes
+stack the same way in both. List markers are `::marker` content in the editor
+and the same strings, with their trailing space, on the canvas. Mixed-direction text is laid out run by run, without full
 bidirectional reordering. That is a known limit of the first version.
 
 Two other ways were rejected. Drawing the DOM into the canvas through an SVG
@@ -489,10 +495,16 @@ the same once-a-frame pacing as the cursor, and left out otherwise.
 
 A viewer resolves the positions against its own copy of the body. When it
 cannot, because the text the caret points into has not reached it yet, it keeps
-the last position until it can. Inside an open editor, carets and selections
-are ProseMirror decorations from a small plugin of our own; `y-prosemirror`'s
-caret plugin expects a `y-protocols` awareness object, which the presence
-stream replaces. On the canvas, the renderer draws them from the body's layout.
+the last position until it can. Inside an open editor, a small plugin of our
+own resolves them when the carets or the body change from outside, and moves
+them through this editor's own typing in between, since while ProseMirror
+applies a keystroke the Yjs document has not caught up yet. The editor draws
+them in a layer over its text, placed with `coordsAtPos`, rather than as
+decorations: changing ProseMirror's DOM puts back a selection it has not read
+yet, so a Home key pressed as someone else's caret moved would be lost.
+`y-prosemirror`'s caret plugin expects a `y-protocols` awareness object, which
+the presence stream replaces. On the canvas, the renderer draws them from the
+body's layout.
 
 ### Gap recovery, access and the snapshotter wait
 
@@ -760,9 +772,10 @@ from the nearest kept state at or below the target, or from the last answer when
 that is closer, and folds forward with the same `apply` the live replica uses.
 A unit test checks every position of a 3,000-op log, scrubbed forwards,
 backwards and in jumps, against a fresh fold to that position, and the
-end-to-end test does the same on a 10,000-change room in a real browser. A
-seek there takes about 2 ms; loading the history takes about 1.3 seconds per
-10,000 changes on a 4-core machine.
+end-to-end test does the same on a 10,000-change room in a real browser, half
+of whose changes type into 50 text boxes. The slowest seek there takes about
+12 ms, most of it decoding the bodies the seek touches, and loading the history
+takes about 1.7 seconds per 10,000 changes on a 4-core machine.
 
 Folding in place matters here. The live fold copies a shape map per op so that
 every state it hands out stays valid; over a whole history that copying cost
