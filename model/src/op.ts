@@ -21,6 +21,11 @@ export interface Op {
   kind: OpKind;
   /** Only the fields this op changes. Empty for a delete. */
   fields: Record<string, FieldValue>;
+  /**
+   * When the edit was made, in milliseconds since 1970 by the author's clock.
+   * Only history shows it; the fold ignores it. Absent on older ops.
+   */
+  at?: number;
 }
 
 /** Largest value of a u64, the range of {@link Op.sid}. */

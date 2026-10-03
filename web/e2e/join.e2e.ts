@@ -1,36 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { Writer, hashes, join, leaveAll, read, settle } from "./helpers";
+import { Writer, busyRoom, hashes, join, leaveAll, read, settle } from "./helpers";
 
 test.afterEach(leaveAll);
 
 const SNAPSHOTTER = "http://127.0.0.1:8788/";
-
-/**
- * Fill the room with `count` ops from `sessions` writers: each creates a
- * few shapes well away from where the other test draws, then moves them.
- * Resolves with the last offset written.
- */
-async function busyRoom(count: number, sessions: number): Promise<number> {
-  const writers = await Promise.all(Array.from({ length: sessions }, () => Writer.open()));
-  const offsets = await Promise.all(
-    writers.map((writer, w) => {
-      const shapes = Array.from({ length: 30 }, (_, i) => BigInt(w * 1000 + i + 1) << 64n);
-      return Promise.all(
-        Array.from({ length: count / sessions }, (_, i) => {
-          const shape = shapes[i % shapes.length]!;
-          const x = 2000 + (i % 30) * 60 + w * 8;
-          const y = 2000 + w * 120 + (i % 7);
-          return i < shapes.length
-            ? writer.publish(shape, "create", { type: "rect", x, y, w: 40, h: 30, z: "V" })
-            : writer.publish(shape, "patch", { x, y });
-        }),
-      );
-    }),
-  );
-  for (const writer of writers) writer.close();
-  return Math.max(...offsets.flat());
-}
 
 test("a cold browser joins a busy room from its snapshot and converges", async ({ browser }) => {
   test.setTimeout(180_000);

@@ -22,7 +22,7 @@
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
 caches. You run it yourself: Felix, a stateless gateway, a snapshotter and the web app.
 
-**Status: M0 to M4, and M6, done.** Two browsers draw rectangles, ellipses, lines and pen
+**Status: M0 to M6 done.** Two browsers draw rectangles, ellipses, lines and pen
 strokes in one room and drag the same shape at once. Each one's canvas is a fold
 of the room's Felix log in offset order, and both end with the same state hash.
 A snapshotter keeps the room's folded state in the Felix cache, so a browser
@@ -31,7 +31,9 @@ Everyone sees everyone else's cursor and name, and a member list that drops a
 closed laptop on its own. People sign in with your identity provider, and each
 session can reach only the room it opened, enforced by Felix itself.
 A tab throttled to 100 kbit/s falls behind alone, says so, and catches up to
-the same canvas while everyone else stays live.
+the same canvas while everyone else stays live. History mode scrubs a room
+back and forth through every change it has had, straight from the log, and
+returns to live without missing anything.
 Packaged images for self-hosting come in M8; until then, see
 [Running locally](#running-locally).
 
@@ -107,7 +109,7 @@ the milestone plan.
 | 2 | Snapshotter and the join path | A cold client joins a busy room correctly | Done |
 | 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real | Done |
 | 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | Done |
-| 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | |
+| 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | Done |
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | Done |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
 | 8 | Images, a compose install, your own IdP, a Helm chart | Anyone can self-host it | |
@@ -189,6 +191,24 @@ the same images:
   what it was without the throttled browser.
 - A gateway integration test shows a throttled connection seeing a gap while
   another connection on the same gateway receives every record.
+
+M5 makes history a fold of the log. What it proves, in CI against the same
+images:
+
+- History mode reads the room's log from offset 0 over a second gateway
+  connection, narrowed to the room like the first, and the gateway keeps
+  nothing about it. The live session keeps running, so going back to live
+  shows the changes made meanwhile.
+- On a 10,000-change room, a browser drags the playhead back and forth, and at
+  every stop the canvas has the same state hash as a fresh fold of the log to
+  that change. History loads within 0.5 ms per change and the slowest seek
+  stays under 50 ms; both measure several times lower.
+- A unit test checks every position of a 3,000-op log, in any order, against a
+  fresh fold, including a history that starts at a snapshot because retention
+  trimmed the log below it.
+- The scrubber reaches as far back as the log does. Felix keeps logs unless a
+  broker-wide limit is set, so that is the room's first change by default
+  ([design.md](docs/design.md#how-far-back-the-scrubber-reaches)).
 
 M6 puts each session in one room and lets Felix keep it there. What it proves,
 in CI against the same images:

@@ -54,6 +54,8 @@ export class Editor {
   pointer: Point | null = null;
   /** Whether a shape is moving or resizing under the pointer right now. */
   dragging = false;
+  /** Whether only the camera may move, as while looking at history. */
+  readOnly = false;
 
   /** Called when anything drawn changed. */
   onChange: () => void = () => {};
@@ -100,6 +102,16 @@ export class Editor {
     this.#updateCursor();
     this.onStateChange();
     this.onChange();
+  }
+
+  /** Allow edits, or stop them and let the pointer only pan. */
+  setReadOnly(readOnly: boolean): void {
+    this.readOnly = readOnly;
+    this.selection.clear();
+    this.hover = null;
+    this.cancel();
+    this.#updateCursor();
+    this.onStateChange();
   }
 
   /** Drop the gesture in progress without committing it. */
@@ -203,7 +215,7 @@ export class Editor {
     cancelAnimationFrame(this.#animation);
     const screen = this.#screen(event);
     const point = this.#world(screen);
-    if (event.button === 1 || this.tool === "hand" || this.#space) {
+    if (event.button === 1 || this.tool === "hand" || this.#space || this.readOnly) {
       this.#gesture = { kind: "pan", from: screen, camera: { ...this.camera } };
       this.#canvas.style.cursor = "grabbing";
       return;
@@ -420,6 +432,8 @@ export class Editor {
     const target = event.target as HTMLElement | null;
     if (target?.closest("input, textarea, [contenteditable], dialog[open]")) return;
     const mod = event.metaKey || event.ctrlKey;
+    if (this.#cameraKey(event)) return;
+    if (this.readOnly) return;
     if (event.code === "Space") {
       if (!this.#space) {
         this.#space = true;
@@ -432,16 +446,9 @@ export class Editor {
       const key = event.key.toLowerCase();
       if (key === "d") this.#duplicate();
       else if (key === "a") this.#selectAll();
-      else if (key === "=" || key === "+") this.zoomBy(1.25, undefined, true);
-      else if (key === "-") this.zoomBy(0.8, undefined, true);
       else return;
       event.preventDefault();
       return;
-    }
-    if (event.shiftKey && event.code === "Digit1") return this.zoomToFit();
-    if (event.shiftKey && event.code === "Digit2") return this.zoomToFit(this.#selectedBox());
-    if (event.shiftKey && event.code === "Digit0") {
-      return this.zoomBy(1 / this.camera.zoom, undefined, true);
     }
     const tools: Record<string, Tool> = {
       v: "select",
@@ -487,8 +494,23 @@ export class Editor {
     }
   }
 
+  /** Zoom shortcuts, which work whether or not the canvas can be edited. Returns whether it was one. */
+  #cameraKey(event: KeyboardEvent): boolean {
+    const mod = event.metaKey || event.ctrlKey;
+    const key = event.key.toLowerCase();
+    if (mod && (key === "=" || key === "+")) this.zoomBy(1.25, undefined, true);
+    else if (mod && key === "-") this.zoomBy(0.8, undefined, true);
+    else if (event.shiftKey && event.code === "Digit1") this.zoomToFit();
+    else if (event.shiftKey && event.code === "Digit2") this.zoomToFit(this.#selectedBox());
+    else if (event.shiftKey && event.code === "Digit0")
+      this.zoomBy(1 / this.camera.zoom, undefined, true);
+    else return false;
+    event.preventDefault();
+    return true;
+  }
+
   #hoverAt(screen: Point, point: Point): void {
-    if (this.tool !== "select" || this.#space) {
+    if (this.tool !== "select" || this.#space || this.readOnly) {
       this.hover = null;
       return;
     }
@@ -499,7 +521,7 @@ export class Editor {
 
   #updateCursor(): void {
     const canvas = this.#canvas;
-    if (this.#space || this.tool === "hand") canvas.style.cursor = "grab";
+    if (this.#space || this.tool === "hand" || this.readOnly) canvas.style.cursor = "grab";
     else if (this.tool === "select") canvas.style.cursor = "";
     else canvas.style.cursor = "crosshair";
   }

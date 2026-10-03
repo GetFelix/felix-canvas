@@ -41,21 +41,56 @@ const IMMUTABLE = new Set(["type", "points"]);
  * and a session's seqs come from a counter that only grows.
  */
 export function apply(doc: Doc, op: Op, offset: number): Doc {
-  const last = doc.seqs.get(op.sid);
-  if (last !== undefined && op.seq <= last) return doc;
+  if (isRepeat(doc, op)) return doc;
   const seqs = new Map(doc.seqs).set(op.sid, op.seq);
-  return { shapes: applyToShapes(doc.shapes, op, offset), seqs };
+  const change = shapeChange(doc.shapes, op, offset);
+  if (!change) return { shapes: doc.shapes, seqs };
+  return { shapes: setShape(new Map(doc.shapes), change), seqs };
 }
 
-function applyToShapes(
-  shapes: ReadonlyMap<bigint, ShapeState>,
-  op: Op,
-  offset: number,
-): ReadonlyMap<bigint, ShapeState> {
+/** A document whose maps {@link applyInPlace} may change. */
+export interface DraftDoc {
+  shapes: Map<bigint, ShapeState>;
+  seqs: Map<bigint, number>;
+}
+
+/**
+ * Apply `op` as {@link apply} does, but by changing `doc`'s maps rather than
+ * copying them. Copying a map per op dominates a long fold, so a fold that
+ * keeps only its result uses this. Shape states are replaced, never changed,
+ * so a copy of the maps taken earlier is unaffected.
+ */
+export function applyInPlace(doc: DraftDoc, op: Op, offset: number): void {
+  if (isRepeat(doc, op)) return;
+  doc.seqs.set(op.sid, op.seq);
+  const change = shapeChange(doc.shapes, op, offset);
+  if (change) setShape(doc.shapes, change);
+}
+
+/** A copy of `doc` that {@link applyInPlace} can change. */
+export function draft(doc: Doc): DraftDoc {
+  return { shapes: new Map(doc.shapes), seqs: new Map(doc.seqs) };
+}
+
+function isRepeat(doc: Doc, op: Op): boolean {
+  const last = doc.seqs.get(op.sid);
+  return last !== undefined && op.seq <= last;
+}
+
+/** What `op` does to its shape: its new state, `null` for a delete, or nothing. */
+type ShapeChange = [bigint, ShapeState | null] | null;
+
+function setShape(shapes: Map<bigint, ShapeState>, [id, state]: [bigint, ShapeState | null]) {
+  if (state) shapes.set(id, state);
+  else shapes.delete(id);
+  return shapes;
+}
+
+function shapeChange(shapes: ReadonlyMap<bigint, ShapeState>, op: Op, offset: number): ShapeChange {
   const shape = shapes.get(op.shape);
   switch (op.kind) {
     case "create": {
-      if (shape || !SHAPE_TYPES.includes(op.fields.type as ShapeType)) return shapes;
+      if (shape || !SHAPE_TYPES.includes(op.fields.type as ShapeType)) return null;
       const fields: Record<string, FieldValue> = {};
       const written: Record<string, number> = {};
       for (const [name, value] of Object.entries(op.fields)) {
@@ -63,10 +98,10 @@ function applyToShapes(
         fields[name] = value;
         written[name] = offset;
       }
-      return new Map(shapes).set(op.shape, { fields, written });
+      return [op.shape, { fields, written }];
     }
     case "patch": {
-      if (!shape) return shapes;
+      if (!shape) return null;
       let next: { fields: Record<string, FieldValue>; written: Record<string, number> } | undefined;
       for (const [name, value] of Object.entries(op.fields)) {
         if (IMMUTABLE.has(name) || !validField(name, value)) continue;
@@ -75,14 +110,10 @@ function applyToShapes(
         next.fields[name] = value;
         next.written[name] = offset;
       }
-      return next ? new Map(shapes).set(op.shape, next) : shapes;
+      return next ? [op.shape, next] : null;
     }
-    case "delete": {
-      if (!shape) return shapes;
-      const without = new Map(shapes);
-      without.delete(op.shape);
-      return without;
-    }
+    case "delete":
+      return shape ? [op.shape, null] : null;
   }
 }
 

@@ -4,3 +4,4 @@ export * from "./doc.js";
 export * from "./zorder.js";
 export * from "./presence.js";
 export * from "./snapshot.js";
+export * from "./history.js";
