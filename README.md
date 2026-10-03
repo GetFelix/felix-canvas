@@ -359,8 +359,9 @@ and Node 24.
 
 5. Open <http://localhost:5173> in two windows, continue as `ana` or `ben`, and
    draw: <kbd>R</kbd> for a rectangle, <kbd>O</kbd> an ellipse, <kbd>L</kbd> a
-   line, <kbd>P</kbd> the pen, <kbd>V</kbd> to select and drag, and <kbd>?</kbd>
-   for every shortcut. The chip at the top right shows how long your changes
+   line, <kbd>P</kbd> the pen, <kbd>T</kbd> text, <kbd>V</kbd> to select and
+   drag, and <kbd>?</kbd> for every shortcut. Double-click a shape to type in
+   it; type in the same box from both windows at once. The chip at the top right shows how long your changes
    take to save; click it for the sync details, including the canvas version
    both windows should share. `?room=studio` opens the other room, which only
    `ana` may open.

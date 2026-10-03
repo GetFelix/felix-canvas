@@ -8,7 +8,9 @@ import {
   encodePresence,
   randomSessionId,
   type FieldValue,
+  type Doc,
   type Member,
+  type Op,
   type OpKind,
   type Presence,
 } from "@felix-canvas/model";
@@ -120,6 +122,10 @@ export class Session {
   onStatusChange: () => void = () => {};
   /** Called for each presence message from another session. */
   onPresence: (presence: Presence) => void = () => {};
+  /** Called with each op as it enters the confirmed state. */
+  onApply: (op: Op) => void = () => {};
+  /** Called when the confirmed state was replaced by a snapshot to rejoin from. */
+  onRejoin: (doc: Doc) => void = () => {};
   /** Called when someone joined or left the member list, or changed name or colour. */
   onMembersChange: () => void = () => {};
 
@@ -159,6 +165,7 @@ export class Session {
     this.#join = join;
     this.#open = open;
     this.replica.onApply = (op) => {
+      this.onApply(op);
       if (
         op.sid !== this.sid &&
         op.at !== undefined &&
@@ -394,6 +401,7 @@ export class Session {
       const doc = snapshot?.doc ?? EMPTY_DOC;
       const next = snapshot ? snapshot.offset + 1 : 0;
       this.#confirmed(this.replica.reset(doc, next));
+      this.onRejoin(doc);
       this.snapshotOffset = snapshot?.offset ?? null;
       this.hasFrame ||= snapshot !== null;
       this.tail = Math.max(this.tail, this.replica.next - 1);
