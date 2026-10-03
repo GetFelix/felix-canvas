@@ -1,0 +1,361 @@
+name: Images
+
+# Every pull request builds both images for both platforms and runs the
+# compose install from them. A v* tag also pushes them to GHCR, signs them,
+# and runs the install again from what was published.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' && github.ref != 'refs/heads/main' }}
+
+env:
+  REGISTRY: ghcr.io
+  PUSH: ${{ github.ref_type == 'tag' }}
+
+jobs:
+  # Each platform builds on a runner of its own architecture and, on a tag, is
+  # pushed by digest alone; `manifest` then tags one list over both and signs
+  # it. This is how Felix publishes its images.
+  build:
+    name: Image ${{ matrix.image.name }} (${{ matrix.platform.arch }})
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: felix-canvas
+            dockerfile: docker/gateway.Dockerfile
+          - name: felix-canvas-snapshotter
+            dockerfile: docker/snapshotter.Dockerfile
+        platform:
+          - name: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - name: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag matches the versions the install pins
+        if: env.PUSH == 'true'
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "felix-canvas:\${CANVAS_VERSION:-${version}}" deploy/compose/docker-compose.yml || {
+            echo "::error::deploy/compose/docker-compose.yml does not default CANVAS_VERSION to ${version}"
+            exit 1
+          }
+          grep -qx "appVersion: \"${version}\"" deploy/helm/felix-canvas/Chart.yaml || {
+            echo "::error::deploy/helm/felix-canvas/Chart.yaml does not set appVersion to ${version}"
+            exit 1
+          }
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.name }}
+
+      - name: Build${{ env.PUSH == 'true' && ' and push by digest' || '' }}
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ matrix.platform.name }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Untagged on a tag: a tag here would point at one platform until
+          # the manifest job moved it. Otherwise saved for the install test.
+          outputs: >-
+            ${{ env.PUSH == 'true'
+              && format('type=image,name={0}/{1}/{2},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY, github.repository_owner, matrix.image.name)
+              || format('type=docker,name={0}/{1}/{2}:ci,dest={3}/image.tar', env.REGISTRY, github.repository_owner, matrix.image.name, runner.temp) }}
+          # Provenance and SBOM travel with a published image. A tarball for
+          # `docker load` cannot carry them.
+          provenance: ${{ env.PUSH == 'true' && 'mode=max' || 'false' }}
+          sbom: ${{ env.PUSH == 'true' }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+
+      - name: Record the digest
+        if: env.PUSH == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      - name: Upload the digest
+        if: env.PUSH == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload the image
+        if: env.PUSH != 'true' && matrix.platform.arch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.image.name }}
+          path: ${{ runner.temp }}/image.tar
+          retention-days: 1
+
+  manifest:
+    name: Publish
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      # Keyless signing: cosign gets a short-lived certificate for this
+      # workflow's OIDC identity, so there is no key to store.
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [felix-canvas, felix-canvas-snapshotter]
+    steps:
+      - name: Download the platform digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `latest` only for a version without a pre-release suffix.
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Create the manifest list
+        id: merge
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          count=$(ls | wc -l)
+          if [ "$count" -ne 2 ]; then
+            echo "::error::expected 2 platform digests for ${IMAGE}, found ${count}"
+            exit 1
+          fi
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+          tag=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      # By digest, never by tag: a tag can be moved and the signature would follow it.
+      - name: Sign
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          DIGEST: ${{ steps.merge.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: What was published
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.merge.outputs.digest }}
+        run: |
+          printf '```\n%s\ndigest: %s\n```\n' "$TAGS" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+  # The release compose file, started the way the self-hosting guide starts
+  # it: from the images this run built, or on a tag from the ones it published.
+  install:
+    name: Compose install (${{ matrix.idp }})
+    needs: [build, manifest]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.manifest.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - idp: development sign-in
+            files: -f docker-compose.yml
+            env_files: --env-file .env
+            password: ""
+          - idp: Dex
+            files: -f docker-compose.yml -f dex.yaml
+            env_files: --env-file .env --env-file dex.env
+            password: password
+    defaults:
+      run:
+        working-directory: deploy/compose
+    env:
+      COMPOSE: docker compose ${{ matrix.env_files }} ${{ matrix.files }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load the images this run built
+        if: github.ref_type != 'tag'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: ${{ runner.temp }}/images
+
+      - name: Choose the images
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "CANVAS_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            for tar in "$RUNNER_TEMP"/images/*/image.tar; do docker load -i "$tar"; done
+            echo "CANVAS_VERSION=ci" >> "$GITHUB_ENV"
+          fi
+
+      - name: Start the install
+        run: |
+          $COMPOSE up -d
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8787/oidc && exit 0
+            sleep 3
+          done
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install the test dependencies
+        working-directory: .
+        run: |
+          npm ci
+          npm run build -w @felix-canvas/model
+          npx -w @felix-canvas/web playwright install --with-deps chromium
+
+      - name: Two browsers draw together
+        working-directory: web
+        env:
+          CANVAS_E2E_URL: http://127.0.0.1:8787
+          CANVAS_E2E_PASSWORD: ${{ matrix.password }}
+        run: npx playwright test convergence
+
+      - name: Logs
+        if: failure()
+        run: $COMPOSE logs
+
+  # The Helm chart on kind next to the Felix chart, from the images this run
+  # built, and two browsers drawing through it.
+  chart:
+    name: Helm chart on kind
+    needs: build
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The Felix release the chart and the compose file are tested against.
+      FELIX_VERSION: v0.6.0-preview
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The Felix chart
+        uses: actions/checkout@v4
+        with:
+          repository: gabloe/felix
+          ref: ${{ env.FELIX_VERSION }}
+          path: felix
+          sparse-checkout: deploy/helm/felix
+
+      - uses: azure/setup-helm@v4
+
+      - name: Lint
+        run: helm lint deploy/helm/felix-canvas -f deploy/helm/felix-canvas/ci/kind-values.yaml
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: kind
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: ${{ runner.temp }}/images
+
+      - name: Load the images
+        run: |
+          for tar in "$RUNNER_TEMP"/images/*/image.tar; do docker load -i "$tar"; done
+          kind load docker-image ghcr.io/gabloe/felix-canvas:ci ghcr.io/gabloe/felix-canvas-snapshotter:ci
+
+      - name: Install Felix and the chart
+        env:
+          FELIX_CHART: ${{ github.workspace }}/felix/deploy/helm/felix
+        run: deploy/helm/felix-canvas/ci/kind-install.sh
+
+      - name: Reach the gateway and the sign-in page
+        run: |
+          kubectl port-forward svc/felix-canvas-gateway 8787:80 &
+          kubectl port-forward svc/felix-canvas-idp 9400:9400 &
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8787/oidc && exit 0
+            sleep 2
+          done
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install the test dependencies
+        run: |
+          npm ci
+          npm run build -w @felix-canvas/model
+          npx -w @felix-canvas/web playwright install --with-deps chromium
+
+      - name: Two browsers draw together
+        working-directory: web
+        env:
+          CANVAS_E2E_URL: http://127.0.0.1:8787
+        run: npx playwright test convergence
+
+      - name: Cluster state
+        if: failure()
+        run: |
+          kubectl get pods -o wide
+          kubectl describe pods | tail -100
+          kubectl logs -l app.kubernetes.io/instance=felix-canvas --all-containers --tail 100
+          kubectl logs felix-broker-0 --tail 100

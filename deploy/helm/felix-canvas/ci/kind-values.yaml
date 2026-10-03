@@ -1,0 +1,18 @@
+# This chart as CI runs it on kind, next to felix-values.yaml, with the
+# development sign-in page reached through a port-forward.
+felix:
+  controlPlaneUrl: http://felix-controlplane:8443
+  brokers: [felix-broker:5000]
+  serverName: felix-broker
+  caSecret:
+    name: felix-broker-tls
+    key: tls.crt
+seed:
+  bootstrapUrl: http://felix-controlplane-bootstrap:9095
+  bootstrapSecret:
+    name: felix-bootstrap
+image:
+  tag: ci
+  pullPolicy: Never
+devIdp:
+  enabled: true

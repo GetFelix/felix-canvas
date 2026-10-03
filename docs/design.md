@@ -585,9 +585,10 @@ broker's visibility timeout lapses, and the group hands newer records out in
 the meantime. A starting snapshotter therefore waits out that timeout before
 it reads, so the old claims come back first and the fold stays in offset order.
 
-One snapshotter runs per room. A group splits records between its members, and
-a member that saw only some of a room's ops would write a wrong snapshot, so a
-second member would have to stand by rather than poll. Each record is held for
+Each room has exactly one group member: one snapshotter process reads every
+room in the deployment, a reader per room. A group splits records between its
+members, and a member that saw only some of a room's ops would write a wrong
+snapshot, so a second process would have to stand by rather than poll. Each record is held for
 at most one snapshot interval before it is acknowledged, which stays inside the
 broker's 30-second visibility timeout and its five-attempt dead-letter bound.
 
@@ -938,7 +939,7 @@ default batching versus 190 µs under the latency profile.
 | 5 | Time scrubber over the op log | Demonstration 4 | 1 week |
 | 6 | Token exchange with per-room narrowing, real IdP | Multi-tenancy enforced by the broker | 1 week |
 | 7 | 500-viewer stress with `felix-loadgen`, kill the owning broker | Demonstrations 1 and 5 | 1 week |
-| 8 | Release images, a compose install, a configurable IdP, a Helm chart | Anyone can self-host it | 1 week |
+| 8 | Release images, a compose install, a configurable IdP, a Helm chart | Anyone can self-host it, following [self-hosting.md](self-hosting.md) | 1 week |
 | 9 | Rich text in shapes: Yjs updates as ops in the log, an overlay editor, canvas text layout, carets of others | A CRDT rides the same log: concurrent typing merges, and snapshots, rejoin and the scrubber still work as a fold | 3–4 weeks |
 
 **M0 is the one to start first**, and it is worth building even if the canvas is

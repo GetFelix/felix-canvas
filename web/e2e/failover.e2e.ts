@@ -144,7 +144,9 @@ test("editing carries on when the broker that owns the room is killed", async ({
       const { applied } = await read(ana);
       await expect
         .poll(
-          async () => ((await (await fetch(SNAPSHOTTER)).json()) as { applied: number }).applied,
+          async () =>
+            ((await (await fetch(SNAPSHOTTER)).json()) as { lobby: { applied: number } }).lobby
+              .applied,
           // Long enough for it to wait out its claims after reconnecting.
           { timeout: 90_000 },
         )
