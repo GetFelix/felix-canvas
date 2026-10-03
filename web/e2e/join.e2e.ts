@@ -7,6 +7,7 @@ test.afterEach(leaveAll);
 
 const GATEWAY = "ws://127.0.0.1:8787/ws";
 const SNAPSHOTTER = "http://127.0.0.1:8788/";
+const IDP = "http://127.0.0.1:9400";
 
 /** A session that publishes ops over its own gateway connection, as a browser does. */
 class Writer {
@@ -25,10 +26,26 @@ class Writer {
     });
   }
 
-  static open(): Promise<Writer> {
+  /** Join the lobby as ana, with an ID token straight from the development IdP. */
+  static async open(): Promise<Writer> {
+    const response = await fetch(`${IDP}/token?sub=ana&aud=felix-canvas`);
+    const { id_token: token } = (await response.json()) as { id_token: string };
     const socket = new WebSocket(GATEWAY);
     return new Promise((resolve, reject) => {
-      socket.addEventListener("open", () => resolve(new Writer(socket)), { once: true });
+      socket.addEventListener(
+        "open",
+        () => socket.send(JSON.stringify({ type: "join", room: "lobby", token })),
+        { once: true },
+      );
+      socket.addEventListener(
+        "message",
+        (message) => {
+          const hello = JSON.parse(String(message.data));
+          if (hello.type === "hello") resolve(new Writer(socket));
+          else reject(new Error(`join refused: ${hello.message}`));
+        },
+        { once: true },
+      );
       socket.addEventListener("error", reject, { once: true });
     });
   }

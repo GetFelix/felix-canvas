@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url";
 
 import { defineConfig, devices } from "@playwright/test";
 
-// The gateway and the page run against the Felix stack `dev/up.sh` started,
-// with the token and certificate it wrote.
+// The gateway, the snapshotter and the page run against the Felix stack
+// `dev/up.sh` started, with the snapshotter's token and the certificate it wrote.
 const root = fileURLToPath(new URL("..", import.meta.url));
 const state = `${root}dev/state`;
 const token = (name: string) =>
@@ -14,7 +14,7 @@ export default defineConfig({
   testDir: "e2e",
   testMatch: "*.e2e.ts",
   timeout: 60_000,
-  // Every test shares the one room the gateway serves.
+  // The tests share the dev stack's rooms.
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
@@ -30,7 +30,6 @@ export default defineConfig({
       cwd: root,
       url: "http://127.0.0.1:8787/metrics",
       env: {
-        CANVAS_FELIX_TOKEN: token("gateway"),
         CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem`,
         // Short, so a vanished tab drops out within the test's time.
         CANVAS_MEMBER_TTL_SECONDS: "6",

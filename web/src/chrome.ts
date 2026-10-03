@@ -6,6 +6,8 @@ import {
   Hand,
   Keyboard,
   Link,
+  Lock,
+  LogOut,
   Minus,
   Monitor,
   Moon,
@@ -61,6 +63,8 @@ export class Chrome {
   onThemeChange: () => void = () => {};
   /** Called when this person chose a new name. */
   onRename: (name: string) => void = () => {};
+  /** Called to sign in, again or as someone else. */
+  onSignIn: () => void = () => {};
 
   readonly #session: Session;
   readonly #editor: Editor;
@@ -79,6 +83,7 @@ export class Chrome {
   #catchUpFrom: number | null = null;
   #convergedAt: number | null = null;
   #toastTimer = 0;
+  #account = { who: "", room: "" };
 
   constructor(session: Session, editor: Editor, name: string, person: bigint) {
     this.#person = person;
@@ -93,6 +98,8 @@ export class Chrome {
         Hand,
         Keyboard,
         Link,
+        Lock,
+        LogOut,
         Minus,
         Monitor,
         Moon,
@@ -120,6 +127,7 @@ export class Chrome {
     this.#wirePeople();
     this.#wireTooltips();
     this.#wireKeys();
+    element("switch-account-item").addEventListener("click", () => this.onSignIn());
     element("share").addEventListener("click", () => this.#share());
     element("zoom-in").addEventListener("click", () => editor.zoomBy(1.25, undefined, true));
     element("zoom-out").addEventListener("click", () => editor.zoomBy(0.8, undefined, true));
@@ -176,10 +184,20 @@ export class Chrome {
     element("zoom-reset").textContent = `${Math.round(this.#editor.camera.zoom * 100)}%`;
   }
 
+  /** Who is signed in, and the room they asked for. */
+  setAccount(who: string, room: string): void {
+    this.#account = { who, room };
+    element("account-label").textContent = who ? `Signed in as ${who}` : "";
+  }
+
   /** Update the room name, cards, chip and status numbers. */
   refresh(): void {
     const session = this.#session;
     const now = performance.now();
+    if (session.refused) {
+      showAccess(session.refused, { ...this.#account, onSignIn: () => this.onSignIn() });
+      return;
+    }
     if (session.room) {
       element("workspace").textContent = session.room.namespace;
       element("room").textContent = session.room.room;
@@ -662,4 +680,34 @@ function away(ms: number | null): string {
 
 function formatMs(ms: number): string {
   return ms < 10 ? `${ms.toFixed(1)} ms` : `${Math.round(ms)} ms`;
+}
+
+/**
+ * Replace the canvas with a card saying why this room cannot be opened:
+ * `forbidden` when the signed-in person is not a member, `signed_out` when
+ * their sign-in has ended or did not finish.
+ */
+export function showAccess(
+  state: "signed_out" | "forbidden",
+  view: { who: string; room: string; onSignIn: () => void; detail?: string },
+): void {
+  const card = element("access");
+  if (card.dataset.state === state) return;
+  card.dataset.state = state;
+  element("app").classList.add("refused");
+  for (const id of ["joining", "empty"]) element(id).hidden = true;
+  const forbidden = state === "forbidden";
+  element("access-title").textContent = forbidden
+    ? "You don't have access to this canvas"
+    : "Sign in to open this canvas";
+  element("access-detail").textContent = forbidden
+    ? `Ask whoever shared “${view.room}” with you to add you, or sign in with an account that has access.`
+    : (view.detail ?? "Your sign-in has ended. Sign in again to pick up where you left off.");
+  const primary = element<HTMLButtonElement>("access-primary");
+  primary.textContent = forbidden ? "Switch account" : "Sign in";
+  primary.onclick = view.onSignIn;
+  element("access-lobby").hidden = !forbidden || view.room === "lobby";
+  element("access-who").textContent = forbidden && view.who ? `Signed in as ${view.who}` : "";
+  card.hidden = false;
+  primary.focus();
 }

@@ -4,7 +4,8 @@ import "./styles.css";
 
 import { EMPTY_DOC, inZOrder, stateHash, type Doc } from "@felix-canvas/model";
 
-import { Chrome } from "./chrome.js";
+import { displayName, signIn, signOut, signedIn, type OidcConfig } from "./auth.js";
+import { Chrome, showAccess } from "./chrome.js";
 import { Coalescer } from "./coalesce.js";
 import { Editor } from "./editor.js";
 import { assignColor } from "./members.js";
@@ -25,9 +26,46 @@ function gatewayUrl(): string {
   return `${scheme}://${location.host}/ws`;
 }
 
+/** Fetch from the gateway, retrying until it answers. */
+async function fetchJson<T>(path: string): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await fetch(path);
+      if (response.ok) return (await response.json()) as T;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, Math.min(4000, 250 * 2 ** attempt)));
+  }
+}
+
+const oidc = await fetchJson<OidcConfig>("/oidc");
+const switchAccount = () => {
+  signOut();
+  void signIn(oidc);
+};
+let token: string | null = null;
+let signInError: unknown = null;
+try {
+  token = await signedIn(oidc);
+} catch (error) {
+  signInError = error;
+}
+// Read after signing in: returning from the provider restores the address.
+const room = new URLSearchParams(location.search).get("room") || "lobby";
+if (signInError) {
+  console.warn(`sign-in failed: ${String(signInError)}`);
+  showAccess("signed_out", {
+    who: "",
+    room,
+    onSignIn: switchAccount,
+    detail: "Signing in didn't finish. Try again.",
+  });
+  await new Promise(() => {});
+}
+token ??= await signIn(oidc);
+
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
-const session = new Session(gatewayUrl());
+const session = new Session(gatewayUrl(), { room, token });
 let name = ownName();
 const person = ownPersonId();
 
@@ -43,6 +81,8 @@ function shapes(): Shape[] {
 const editor = new Editor(canvas, session, shapes);
 const peers = new Peers(document.getElementById("cursors")!);
 const chrome = new Chrome(session, editor, name, person);
+chrome.setAccount(displayName(token), room);
+chrome.onSignIn = switchAccount;
 
 let palette = readPalette();
 let dirty = true;
