@@ -107,3 +107,40 @@ jobs:
       - name: Felix logs
         if: failure()
         run: docker compose -f dev/docker-compose.yml logs
+
+  # Its own job because it needs three brokers instead of one, and stops one of
+  # them; the other jobs share a single-broker stack.
+  failover:
+    name: Failover against a Felix cluster
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CANVAS_FELIX_CLUSTER: "1"
+      CANVAS_FELIX_BROKERS: 127.0.0.1:5000,127.0.0.1:5010,127.0.0.1:5020
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @felix-canvas/model
+      - name: Build the gateway
+        run: cargo build --locked -p felix-canvas-gateway
+      - name: Install Chromium
+        run: npx -w @felix-canvas/web playwright install --with-deps chromium
+      - name: Start three brokers
+        run: dev/up.sh --cluster
+      - name: Playwright
+        run: npm run test:e2e -w @felix-canvas/web -- failover
+      - name: Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failover-report
+          path: web/playwright-report/
+      - name: Felix logs
+        if: failure()
+        run: docker compose -f dev/docker-compose.yml -f dev/docker-compose.cluster.yml logs

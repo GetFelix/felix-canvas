@@ -10,6 +10,10 @@ interface Replica {
   snapshotOffset(): number | null;
   fellBehind(): number;
   saveTimes(count: number): number[];
+  ackTimes(count: number): number[];
+  echoTimes(count: number): number[];
+  peerEditTimes(count: number): number[];
+  cursorTimes(count: number): number[];
   history: {
     ready(): boolean;
     position(): number;
@@ -40,7 +44,14 @@ export async function open(
     user = "ana",
     room = "lobby",
     name,
-  }: { user?: string; room?: string; name?: string | undefined } = {},
+    setup,
+  }: {
+    user?: string;
+    room?: string;
+    name?: string | undefined;
+    /** Runs on the new page before it loads, to attach listeners. */
+    setup?: ((page: Page) => void) | undefined;
+  } = {},
 ): Promise<Page> {
   const context = await browser.newContext();
   opened.push(context);
@@ -48,6 +59,7 @@ export async function open(
     await context.addInitScript((saved) => localStorage.setItem("felix-canvas.name", saved), name);
   }
   const page = await context.newPage();
+  setup?.(page);
   await page.goto(`/?room=${room}`);
   await page.getByRole("link", { name: `Continue as ${user}` }).click();
   await page.waitForURL(`**/?room=${room}`);
@@ -55,8 +67,12 @@ export async function open(
 }
 
 /** Open the lobby as {@link open} does and wait until it shows a correct frame. */
-export async function join(browser: Browser, name?: string): Promise<Page> {
-  const page = await open(browser, { name });
+export async function join(
+  browser: Browser,
+  name?: string,
+  setup?: (page: Page) => void,
+): Promise<Page> {
+  const page = await open(browser, { name, setup });
   await expect(page.locator("#joining")).toBeHidden({ timeout: 30_000 });
   return page;
 }
@@ -117,28 +133,9 @@ export class Writer {
     });
   }
 
-  /** Join `room` as ana, with an ID token straight from the development IdP. */
+  /** Join `room` as ana. */
   static async open(room = "lobby"): Promise<Writer> {
-    const response = await fetch(`${IDP}/token?sub=ana&aud=felix-canvas`);
-    const { id_token: token } = (await response.json()) as { id_token: string };
-    const socket = new WebSocket(GATEWAY);
-    return new Promise((resolve, reject) => {
-      socket.addEventListener(
-        "open",
-        () => socket.send(JSON.stringify({ type: "join", room, token })),
-        { once: true },
-      );
-      socket.addEventListener(
-        "message",
-        (message) => {
-          const hello = JSON.parse(String(message.data));
-          if (hello.type === "hello") resolve(new Writer(socket));
-          else reject(new Error(`join refused: ${hello.message}`));
-        },
-        { once: true },
-      );
-      socket.addEventListener("error", reject, { once: true });
-    });
+    return new Writer(await joinRoom(room));
   }
 
   /** Publish an op and resolve with its log offset. */
@@ -187,4 +184,49 @@ export async function busyRoom(count: number, sessions: number, room = "lobby"):
   );
   for (const writer of writers) writer.close();
   return Math.max(...offsets.flat());
+}
+
+/** Join `room` as ana over a gateway connection, with an ID token straight from the development IdP. */
+async function joinRoom(room: string): Promise<WebSocket> {
+  const response = await fetch(`${IDP}/token?sub=ana&aud=felix-canvas`);
+  const { id_token: token } = (await response.json()) as { id_token: string };
+  const socket = new WebSocket(GATEWAY);
+  return new Promise((resolve, reject) => {
+    socket.addEventListener(
+      "open",
+      () => socket.send(JSON.stringify({ type: "join", room, token })),
+      { once: true },
+    );
+    socket.addEventListener(
+      "message",
+      (message) => {
+        const hello = JSON.parse(String(message.data));
+        if (hello.type === "hello") resolve(socket);
+        else reject(new Error(`join refused: ${hello.message}`));
+      },
+      { once: true },
+    );
+    socket.addEventListener("error", reject, { once: true });
+  });
+}
+
+/** The lobby's log from offset 0 up to `next`, as `[offset, payload]` pairs. */
+export async function readLog(next: number): Promise<[number, Uint8Array][]> {
+  const socket = await joinRoom("lobby");
+  const records: [number, Uint8Array][] = [];
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener("message", (message) => {
+        const event = JSON.parse(String(message.data));
+        if (event.type === "error") reject(new Error(`gateway: ${event.message}`));
+        if (event.type !== "event" || event.stream !== "ops") return;
+        records.push([event.offset, Buffer.from(event.payload, "base64")]);
+        if (event.offset >= next - 1) resolve();
+      });
+      socket.send(JSON.stringify({ type: "subscribe", stream: "ops", from: 0 }));
+    });
+  } finally {
+    socket.close();
+  }
+  return records;
 }
