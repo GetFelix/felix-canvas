@@ -61,6 +61,7 @@ Three settings there exist only because of Felix gaps, each filed upstream:
 | Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
 | Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it |
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests |
+| Two browsers against Felix | Starts the dev stack, the gateway and the page, and runs the Playwright test in `web/e2e/` |
 
 ## Milestones and issues
 

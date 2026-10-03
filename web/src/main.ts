@@ -1,17 +1,18 @@
-// A test page for the relay: publish ops, and list every op the room's log
-// delivers with its offset. Open it in two tabs to watch them agree.
-import { decodeOp, encodeOp, randomSessionId, randomShapeId, type Op } from "@felix-canvas/model";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
+import "./styles.css";
 
-import { GatewayClient, type GatewayEvent } from "./gateway.js";
+import { EMPTY_DOC, inZOrder, stateHash, type Doc } from "@felix-canvas/model";
 
-const sid = randomSessionId();
-let seq = 0;
-let lastOffset: number | null = null;
+import { Chrome } from "./chrome.js";
+import { Editor } from "./editor.js";
+import { Peers, ownName } from "./peers.js";
+import { render, type Palette } from "./render.js";
+import { Session } from "./session.js";
+import { readShape, type Shape } from "./shapes.js";
 
-const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const status = element<HTMLParagraphElement>("status");
-const lastAck = element<HTMLParagraphElement>("last-ack");
-const rows = element<HTMLTableSectionElement>("events");
+/** Idle sessions still announce themselves this often, so peers know they are here. */
+const HEARTBEAT_MS = 3000;
 
 function gatewayUrl(): string {
   const override = new URLSearchParams(location.search).get("gateway");
@@ -20,92 +21,133 @@ function gatewayUrl(): string {
   return `${scheme}://${location.host}/ws`;
 }
 
-function show(event: GatewayEvent): void {
-  const row = rows.insertRow();
-  let problem: string | undefined;
-  if (event.offset !== null && lastOffset !== null) {
-    const dropped = event.offset - lastOffset - 1 - event.skippedBefore;
-    if (event.offset <= lastOffset) problem = `out of order after ${lastOffset}`;
-    else if (dropped > 0) problem = `${dropped} dropped before this`;
-  }
-  lastOffset = event.offset ?? lastOffset;
+const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+const ctx = canvas.getContext("2d")!;
+const session = new Session(gatewayUrl());
+const name = ownName();
 
-  let op: Op | undefined;
-  try {
-    op = decodeOp(event.payload);
-  } catch {
-    // Anything can be published to the stream; show it rather than hide it.
+let shapesOf: { doc: Doc; shapes: Shape[] } = { doc: EMPTY_DOC, shapes: [] };
+function shapes(): Shape[] {
+  const doc = session.replica.view();
+  if (shapesOf.doc !== doc) {
+    shapesOf = { doc, shapes: inZOrder(doc).map(([id, state]) => readShape(id, state)) };
   }
-  const cells = op
-    ? [
-        op.sid === sid ? "you" : op.sid.toString(16).padStart(16, "0").slice(0, 8),
-        String(op.seq),
-        op.kind,
-        JSON.stringify(op.fields, (_, value) =>
-          typeof value === "bigint" ? value.toString() : value,
-        ),
-      ]
-    : ["", "", "", `not an op (${event.payload.length} bytes)`];
-  for (const text of [String(event.offset), ...cells]) {
-    row.insertCell().textContent = text;
-  }
-  if (op?.sid === sid) row.classList.add("mine");
-  if (problem) {
-    row.classList.add("problem");
-    row.title = problem;
-  }
-  row.scrollIntoView({ block: "nearest" });
+  return shapesOf.shapes;
 }
 
-async function main(): Promise<void> {
-  const url = gatewayUrl();
-  const client = await GatewayClient.connect(url);
-  status.textContent = `Connected to ${url}. Session ${sid.toString(16)}.`;
+const editor = new Editor(canvas, session, shapes);
+const peers = new Peers(document.getElementById("cursors")!);
+const chrome = new Chrome(session, editor, name);
 
-  client.onEvent = (event) => {
-    if (event.stream === "ops") show(event);
-  };
-  client.onSubscribed = (stream, startOffset) => {
-    rows.replaceChildren();
-    lastOffset = null;
-    status.textContent = `Subscribed to ${stream} from ${startOffset ?? "live"}. Session ${sid.toString(16)}.`;
-  };
-  client.onError = (error, stream) => {
-    status.textContent = `${stream ?? "gateway"}: ${error.code}: ${error.message}`;
-  };
-  client.onClose = () => {
-    status.textContent = "Disconnected from the gateway. Reload to reconnect.";
-  };
-  client.subscribe("ops", "live");
+let palette = readPalette();
+let dirty = true;
+let presenceDirty = true;
+let presenceSentAt = 0;
 
-  element<HTMLFormElement>("publish").addEventListener("submit", async (submit) => {
-    submit.preventDefault();
-    const label = element<HTMLInputElement>("label");
-    const op: Op = {
-      sid,
-      seq: seq++,
-      shape: randomShapeId(),
-      kind: "create",
-      fields: { type: "rect", label: label.value },
-    };
-    label.value = "";
-    const started = performance.now();
-    try {
-      const offset = await client.publish("ops", encodeOp(op));
-      const elapsed = (performance.now() - started).toFixed(1);
-      lastAck.textContent = `seq ${op.seq} acknowledged at offset ${offset} in ${elapsed} ms`;
-    } catch (error) {
-      lastAck.textContent = `seq ${op.seq} failed: ${String(error)}`;
-    }
-  });
-
-  element<HTMLFormElement>("resubscribe").addEventListener("submit", (submit) => {
-    submit.preventDefault();
-    const from = element<HTMLInputElement>("from").value.trim();
-    client.subscribe("ops", from === "live" || from === "" ? "live" : Number(from));
-  });
+function readPalette(): Palette {
+  const style = getComputedStyle(document.documentElement);
+  const token = (property: string) => style.getPropertyValue(property).trim();
+  return {
+    canvas: token("--canvas"),
+    dot: token("--canvas-dot"),
+    ink: token("--ink"),
+    fill: token("--shape-fill"),
+    accent: token("--accent"),
+    accentSoft: token("--accent-soft"),
+    handle: token("--handle"),
+  };
 }
 
-main().catch((error: unknown) => {
-  status.textContent = `Cannot start: ${String(error)}`;
+const ownColor = () => peers.colorFor(session.sid);
+
+session.onDocChange = () => {
+  editor.prune();
+  dirty = true;
+};
+session.onStatusChange = () => chrome.refresh();
+session.onPresence = (presence) => {
+  if (peers.update(presence)) {
+    chrome.setPeers(peers.list(), ownColor());
+    presenceDirty = true;
+    dirty = true;
+  }
+};
+editor.onChange = () => {
+  dirty = true;
+  presenceDirty = true;
+};
+editor.onStateChange = () => {
+  chrome.syncEditor();
+  presenceDirty = true;
+};
+editor.onRefused = () => chrome.toast("Offline for too long: reconnect to keep editing");
+chrome.onThemeChange = () => {
+  palette = readPalette();
+  dirty = true;
+};
+
+new ResizeObserver(() => {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(canvas.clientWidth * dpr);
+  canvas.height = Math.round(canvas.clientHeight * dpr);
+  dirty = true;
+}).observe(canvas);
+// The name tags drawn on the canvas need Inter loaded first.
+void document.fonts.ready.then(() => (dirty = true));
+
+let last = performance.now();
+function frame(now: number): void {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  const { moving, changed } = peers.tick(dt, editor.camera, now);
+  if (changed) {
+    chrome.setPeers(peers.list(), ownColor());
+    dirty = true;
+  }
+  if (dirty || moving) {
+    render(ctx, canvas.clientWidth, canvas.clientHeight, editor.camera, palette, {
+      shapes: shapes(),
+      selection: editor.selection,
+      hover: editor.hover,
+      draft: editor.draft,
+      marquee: editor.marquee,
+      handles: !editor.dragging,
+      peers: peers
+        .list()
+        .filter((peer) => peer.selection.length > 0)
+        .map((peer) => ({ name: peer.name, color: peer.color, shapes: peer.selection })),
+    });
+    dirty = false;
+  }
+  // At most one presence message a frame, and a heartbeat when idle.
+  if ((presenceDirty && now - presenceSentAt >= 16) || now - presenceSentAt > HEARTBEAT_MS) {
+    session.publishPresence({
+      name,
+      color: ownColor(),
+      cursor: editor.pointer,
+      selection: [...editor.selection],
+    });
+    presenceSentAt = now;
+    presenceDirty = false;
+  }
+  requestAnimationFrame(frame);
+}
+
+addEventListener("pagehide", () =>
+  session.publishPresence({ name, color: ownColor(), cursor: null, selection: [], gone: true }),
+);
+
+// The end-to-end tests compare replicas across browsers through this.
+Object.assign(window, {
+  felixCanvas: {
+    hash: () => stateHash(session.replica.confirmed),
+    applied: () => session.replica.next,
+    pending: () => session.replica.pending.length,
+    shapes: () => shapes().length,
+  },
 });
+
+editor.centre(0, 0);
+chrome.setPeers([], ownColor());
+session.start();
+requestAnimationFrame(frame);

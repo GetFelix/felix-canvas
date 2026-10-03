@@ -9,6 +9,8 @@ per-subscriber isolation and replay-by-offset are product features, not
 benchmark rows. The audience is an engineer who would otherwise wire Redis
 beside Kafka and does not yet believe one system covers both.
 
+How it looks and feels is in the UX and visual design brief, [ux.md](ux.md).
+
 **In scope**
 
 - Freeform shapes on an infinite canvas: rectangle, ellipse, line, pen stroke, text, image placeholder
@@ -209,7 +211,7 @@ explicit that it offers no exactly-once, so the client must tolerate a repeat.
 **What the client owes:**
 
 1. Apply ops in offset order, never in arrival order. Buffer anything that arrives ahead of the next expected offset.
-2. Deduplicate on `(session_id, seq)` carried in the op body, because a retried publish can land twice.
+2. Deduplicate on `(session_id, seq)` carried in the op body, because a retried publish can land twice. A session's ops reach the log in `seq` order, since the gateway publishes a connection's ops one at a time and seqs come from a counter that only grows, so the fold keeps only each session's highest applied `seq` and ignores anything at or below it.
 3. Make every op commutative or offset-ordered, since two clients can have ops admitted between each other's.
 
 **Conflict resolution: last-writer-wins per shape field, keyed on log offset.**
@@ -234,9 +236,13 @@ Op shape, MessagePack-encoded, roughly 60–120 bytes for a typical move:
 | `fields` | map | Only the changed fields |
 
 Echo suppression matters more than it looks. A client applies its own op
-optimistically, then sees it again from the broker; matching on `sid` lets it
-skip the reapply and instead record the offset, which is how the local replica
-learns its own position in the log.
+optimistically, then sees it again from the broker. The client keeps its
+unacknowledged ops as a pending list drawn on top of the fold of the log, so a
+field with a local write shows that write whatever arrives for it meanwhile,
+which is Figma's rule. When its own op comes back, matched on `(sid, seq)`, the
+op leaves the pending list and enters the fold at its offset, which is how the
+replica learns its own position in the log. The value on screen does not change,
+because every write that reached the log before it had a lower offset.
 
 ## Join and snapshot
 

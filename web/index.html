@@ -2,70 +2,256 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Felix Canvas relay test</title>
-    <style>
-      :root {
-        color-scheme: light dark;
-        font-family: system-ui, sans-serif;
-      }
-      body {
-        margin: 0 auto;
-        max-width: 60rem;
-        padding: 1rem;
-      }
-      form {
-        display: flex;
-        gap: 0.5rem;
-        margin: 0.75rem 0;
-      }
-      input {
-        flex: 1;
-      }
-      table {
-        border-collapse: collapse;
-        width: 100%;
-        font-family: ui-monospace, monospace;
-        font-size: 0.85rem;
-      }
-      th,
-      td {
-        border-bottom: 1px solid #8884;
-        padding: 0.25rem 0.5rem;
-        text-align: left;
-      }
-      .mine {
-        background: #4a90e222;
-      }
-      .problem {
-        color: #d0021b;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Felix Canvas</title>
+    <link rel="icon" type="image/png" href="/felix-mark.png" />
+    <script>
+      // Before first paint, so a saved theme never flashes the other one.
+      try {
+        const theme = localStorage.getItem("felix-canvas.theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
   </head>
   <body>
-    <h1>Felix Canvas relay test</h1>
-    <p id="status">Connecting...</p>
-    <form id="publish">
-      <input id="label" placeholder="A label for a new shape" autocomplete="off" />
-      <button>Publish op</button>
-    </form>
-    <form id="resubscribe">
-      <input id="from" placeholder="Subscribe to ops from an offset, or live" value="live" />
-      <button>Subscribe</button>
-    </form>
-    <p id="last-ack"></p>
-    <table>
-      <thead>
-        <tr>
-          <th>offset</th>
-          <th>session</th>
-          <th>seq</th>
-          <th>kind</th>
-          <th>fields</th>
-        </tr>
-      </thead>
-      <tbody id="events"></tbody>
-    </table>
+    <main id="app">
+      <canvas id="canvas" aria-label="Canvas"></canvas>
+      <div id="cursors" class="cursors" aria-hidden="true"></div>
+
+      <section id="joining" class="card joining">
+        <img src="/felix-mark.png" alt="" width="40" height="40" />
+        <h1 id="joining-title">Joining the room</h1>
+        <p id="joining-detail" class="mono">Connecting</p>
+        <div class="progress"><div id="joining-bar"></div></div>
+      </section>
+
+      <section id="empty" class="card empty" hidden>
+        <img src="/felix-mark.png" alt="" width="48" height="48" />
+        <h1>Start drawing</h1>
+        <p>
+          Everything you draw is saved and shared, so everyone here sees the same canvas. Press
+          <kbd>R</kbd> for a rectangle or <kbd>P</kbd> for the pen.
+        </p>
+      </section>
+
+      <header class="island room-island">
+        <button
+          id="menu-button"
+          class="mark"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          data-tip="Menu"
+        >
+          <img src="/felix-mark.png" alt="Felix" width="24" height="24" />
+        </button>
+        <div class="room-name">
+          <span id="workspace" class="workspace"></span>
+          <span class="slash" aria-hidden="true">/</span>
+          <span id="room" class="room"></span>
+        </div>
+      </header>
+
+      <div id="menu" class="menu" role="menu" hidden>
+        <div class="menu-label">Theme</div>
+        <div class="segmented" role="radiogroup" aria-label="Theme">
+          <button role="radio" data-theme-choice="system" aria-label="Match the system">
+            <i data-lucide="monitor"></i>
+          </button>
+          <button role="radio" data-theme-choice="light" aria-label="Light">
+            <i data-lucide="sun"></i>
+          </button>
+          <button role="radio" data-theme-choice="dark" aria-label="Dark">
+            <i data-lucide="moon"></i>
+          </button>
+        </div>
+        <div class="menu-divider"></div>
+        <button role="menuitem" id="shortcuts-item">
+          <i data-lucide="keyboard"></i><span>Keyboard shortcuts</span><kbd>?</kbd>
+        </button>
+        <button role="menuitem" id="hide-ui-item">
+          <i data-lucide="eye-off"></i><span>Hide interface</span><kbd>⌘\</kbd>
+        </button>
+        <div class="menu-divider"></div>
+        <a role="menuitem" href="https://github.com/gabloe/felix" target="_blank" rel="noreferrer">
+          <i data-lucide="external-link"></i><span>About Felix</span>
+        </a>
+      </div>
+
+      <div class="island presence-island">
+        <div id="avatars" class="avatars"></div>
+        <button
+          id="chip"
+          class="chip"
+          data-state="connecting"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+        >
+          <span class="dot" aria-hidden="true"></span>
+          <span id="chip-label" class="chip-label">Connecting</span>
+        </button>
+        <button id="share" class="share" data-tip="Copy a link to this room">
+          <i data-lucide="link"></i><span>Share</span>
+        </button>
+      </div>
+
+      <section id="status" class="popover status" role="dialog" aria-label="Sync status" hidden>
+        <header>
+          <span>Sync</span>
+          <span id="status-room" class="mono muted"></span>
+        </header>
+        <dl>
+          <div>
+            <dt>Changes in this room</dt>
+            <dd id="status-tail" class="mono"></dd>
+          </div>
+          <div>
+            <dt>Synced here</dt>
+            <dd id="status-applied" class="mono"></dd>
+          </div>
+          <div class="with-chart">
+            <dt>Save time</dt>
+            <dd id="status-edit" class="mono"></dd>
+            <svg
+              id="status-spark"
+              class="spark"
+              viewBox="0 0 280 32"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <polyline points="" />
+            </svg>
+          </div>
+          <div>
+            <dt>Cursor delay</dt>
+            <dd id="status-cursor" class="mono"></dd>
+          </div>
+          <div>
+            <dt>Your connection</dt>
+            <dd id="status-browser" class="mono"></dd>
+          </div>
+          <div>
+            <dt>Server save</dt>
+            <dd id="status-server" class="mono"></dd>
+          </div>
+          <div>
+            <dt>Canvas version</dt>
+            <dd id="status-hash" class="mono"></dd>
+          </div>
+        </dl>
+        <p class="note">
+          Times are the median and 99th percentile over the last ten seconds, from making a change
+          to seeing it confirmed.
+        </p>
+      </section>
+
+      <nav id="toolbar" class="island toolbar" aria-label="Tools">
+        <button data-tool="select" data-tip="Select" data-key="V" aria-label="Select">
+          <i data-lucide="mouse-pointer-2"></i>
+        </button>
+        <button data-tool="hand" data-tip="Hand" data-key="H" aria-label="Hand">
+          <i data-lucide="hand"></i>
+        </button>
+        <span class="divider" aria-hidden="true"></span>
+        <button data-tool="rect" data-tip="Rectangle" data-key="R" aria-label="Rectangle">
+          <i data-lucide="square"></i>
+        </button>
+        <button data-tool="ellipse" data-tip="Ellipse" data-key="O" aria-label="Ellipse">
+          <i data-lucide="circle"></i>
+        </button>
+        <button data-tool="line" data-tip="Line" data-key="L" aria-label="Line">
+          <i data-lucide="slash"></i>
+        </button>
+        <span class="divider" aria-hidden="true"></span>
+        <button data-tool="pen" data-tip="Pen" data-key="P" aria-label="Pen">
+          <i data-lucide="pencil"></i>
+        </button>
+      </nav>
+
+      <div class="island zoom-island">
+        <button id="zoom-out" data-tip="Zoom out" data-key="⌘ −" aria-label="Zoom out">
+          <i data-lucide="minus"></i>
+        </button>
+        <button id="zoom-reset" class="zoom-value mono" data-tip="Zoom to 100%" data-key="⇧ 0">
+          100%
+        </button>
+        <button id="zoom-in" data-tip="Zoom in" data-key="⌘ +" aria-label="Zoom in">
+          <i data-lucide="plus"></i>
+        </button>
+      </div>
+
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div id="tooltip" class="tooltip" role="tooltip"></div>
+
+      <dialog id="shortcuts" class="dialog" aria-labelledby="shortcuts-title">
+        <header>
+          <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+          <button class="icon-button" data-close aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="shortcut-columns">
+          <dl>
+            <div>
+              <dt>Select</dt>
+              <dd><kbd>V</kbd></dd>
+            </div>
+            <div>
+              <dt>Hand</dt>
+              <dd><kbd>H</kbd> or hold <kbd>Space</kbd></dd>
+            </div>
+            <div>
+              <dt>Rectangle</dt>
+              <dd><kbd>R</kbd></dd>
+            </div>
+            <div>
+              <dt>Ellipse</dt>
+              <dd><kbd>O</kbd></dd>
+            </div>
+            <div>
+              <dt>Line</dt>
+              <dd><kbd>L</kbd></dd>
+            </div>
+            <div>
+              <dt>Pen</dt>
+              <dd><kbd>P</kbd> or <kbd>D</kbd></dd>
+            </div>
+            <div>
+              <dt>Back to select, deselect</dt>
+              <dd><kbd>Esc</kbd></dd>
+            </div>
+          </dl>
+          <dl>
+            <div>
+              <dt>Delete</dt>
+              <dd><kbd>⌫</kbd></dd>
+            </div>
+            <div>
+              <dt>Duplicate</dt>
+              <dd><kbd>⌘</kbd><kbd>D</kbd></dd>
+            </div>
+            <div>
+              <dt>Select all</dt>
+              <dd><kbd>⌘</kbd><kbd>A</kbd></dd>
+            </div>
+            <div>
+              <dt>Send backward, bring forward</dt>
+              <dd><kbd>[</kbd> <kbd>]</kbd></dd>
+            </div>
+            <div>
+              <dt>Nudge 1 px, 10 px</dt>
+              <dd><kbd>←</kbd> <kbd>⇧←</kbd></dd>
+            </div>
+            <div>
+              <dt>Zoom to fit, selection, 100%</dt>
+              <dd><kbd>⇧1</kbd> <kbd>⇧2</kbd> <kbd>⇧0</kbd></dd>
+            </div>
+            <div>
+              <dt>Hide interface</dt>
+              <dd><kbd>⌘\</kbd></dd>
+            </div>
+          </dl>
+        </div>
+      </dialog>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
