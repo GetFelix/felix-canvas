@@ -9,7 +9,7 @@ export class OpDecodeError extends Error {
 
 // Kinds go on the wire as small integers: most ops are patches, and the name
 // would cost more than the rest of a typical move's header.
-const KINDS: readonly OpKind[] = ["create", "patch", "delete"];
+const KINDS: readonly OpKind[] = ["create", "patch", "delete", "text"];
 
 const encoder = new Encoder({ useBigInt64: true });
 const decoder = new Decoder({ useBigInt64: true });

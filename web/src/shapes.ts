@@ -88,6 +88,7 @@ export function hits(shape: Shape, x: number, y: number, slack: number): boolean
   }
   switch (shape.type) {
     case "rect":
+    case "text":
       return true;
     case "ellipse": {
       const rx = box.w / 2 + reach;

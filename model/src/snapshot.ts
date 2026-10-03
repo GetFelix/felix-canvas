@@ -3,6 +3,7 @@ import { Decoder, Encoder } from "@msgpack/msgpack";
 import { bytesToU128, u128ToBytes } from "./codec.js";
 import type { Doc, ShapeState } from "./doc.js";
 import type { FieldValue } from "./op.js";
+import { TextBody } from "./text.js";
 
 /**
  * A room's state after its log up to and including `offset`, as stored in
@@ -20,15 +21,15 @@ export class SnapshotDecodeError extends Error {
   override name = "SnapshotDecodeError";
 }
 
-const VERSION = 1;
+const VERSION = 2;
 const encoder = new Encoder({ useBigInt64: true });
 const decoder = new Decoder({ useBigInt64: true });
 
 /**
  * Encode a snapshot as a MessagePack map: `v`, `offset`, `shapes` as
- * `[id, fields, written]` triples, and `seqs` as `[sid, seq]` pairs. The
- * seqs travel with the shapes so a retried op landing after the snapshot is
- * still recognised as a repeat.
+ * `[id, fields, written]` triples, `seqs` as `[sid, seq]` pairs and `texts`
+ * as `[id, state]` pairs. The seqs travel with the shapes so a retried op
+ * landing after the snapshot is still recognised as a repeat.
  */
 export function encodeSnapshot({ doc, offset }: Snapshot): Uint8Array {
   return encoder.encode({
@@ -36,13 +37,15 @@ export function encodeSnapshot({ doc, offset }: Snapshot): Uint8Array {
     offset,
     shapes: [...doc.shapes].map(([id, shape]) => [u128ToBytes(id), shape.fields, shape.written]),
     seqs: [...doc.seqs],
+    texts: [...doc.texts].map(([id, body]) => [u128ToBytes(id), body.state]),
   });
 }
 
 /**
- * Decode a snapshot written by {@link encodeSnapshot}.
+ * Decode a snapshot written by {@link encodeSnapshot}, or by the first
+ * version, which had no text.
  *
- * @throws SnapshotDecodeError if the bytes are not a snapshot of this version.
+ * @throws SnapshotDecodeError if the bytes are not a snapshot of a known version.
  */
 export function decodeSnapshot(bytes: Uint8Array): Snapshot {
   let value: unknown;
@@ -51,13 +54,14 @@ export function decodeSnapshot(bytes: Uint8Array): Snapshot {
   } catch (err) {
     throw new SnapshotDecodeError(`not MessagePack: ${String(err)}`);
   }
-  const { v, offset, shapes, seqs } = (value ?? {}) as Record<string, unknown>;
-  if (v !== VERSION) throw new SnapshotDecodeError(`unknown snapshot version ${String(v)}`);
+  const { v, offset, shapes, seqs, texts = [] } = (value ?? {}) as Record<string, unknown>;
+  if (v !== 1 && v !== VERSION)
+    throw new SnapshotDecodeError(`unknown snapshot version ${String(v)}`);
   if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
     throw new SnapshotDecodeError("offset must be a log offset");
   }
-  if (!Array.isArray(shapes) || !Array.isArray(seqs)) {
-    throw new SnapshotDecodeError("shapes and seqs must be lists");
+  if (!Array.isArray(shapes) || !Array.isArray(seqs) || !Array.isArray(texts)) {
+    throw new SnapshotDecodeError("shapes, seqs and texts must be lists");
   }
   const shapeMap = new Map<bigint, ShapeState>();
   for (const entry of shapes) {
@@ -79,7 +83,15 @@ export function decodeSnapshot(bytes: Uint8Array): Snapshot {
     }
     seqMap.set(id, seq);
   }
-  return { doc: { shapes: shapeMap, seqs: seqMap }, offset };
+  const textMap = new Map<bigint, TextBody>();
+  for (const entry of texts) {
+    const [id, state] = Array.isArray(entry) ? entry : [];
+    if (!(id instanceof Uint8Array) || id.length !== 16 || !(state instanceof Uint8Array)) {
+      throw new SnapshotDecodeError("a text is [id, state]");
+    }
+    textMap.set(bytesToU128(id), TextBody.fromState(state));
+  }
+  return { doc: { shapes: shapeMap, seqs: seqMap, texts: textMap }, offset };
 }
 
 function isMap(value: unknown): value is Record<string, unknown> {

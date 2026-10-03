@@ -1,5 +1,15 @@
-import { EMPTY_DOC, apply, encodeOp, stateHash, type Op } from "@felix-canvas/model";
+import {
+  EMPTY_DOC,
+  apply,
+  encodeOp,
+  mergeTextUpdates,
+  plainText,
+  stateHash,
+  textClientId,
+  type Op,
+} from "@felix-canvas/model";
 import { describe, expect, it } from "vitest";
+import * as Y from "yjs";
 
 import { Replica } from "../src/replica.js";
 
@@ -46,6 +56,36 @@ function log(): LogRecord[] {
     return { offset, skippedBefore: offset === 4 ? 1 : 0, payload: encodeOp(op) };
   });
 }
+
+/** A session typing into one body, as the editor does. */
+function typist(sid: bigint) {
+  const doc = new Y.Doc();
+  doc.clientID = textClientId(sid);
+  const out: Uint8Array[] = [];
+  doc.on("updateV2", (update: Uint8Array, origin: unknown) => {
+    if (origin !== "log") out.push(update);
+  });
+  let seq = 0;
+  return {
+    see(op: Op) {
+      Y.applyUpdateV2(doc, op.fields.y as Uint8Array, "log");
+    },
+    type(shape: bigint, change: (body: Y.XmlFragment) => void): Op {
+      doc.transact(() => change(doc.getXmlFragment("body")));
+      const y = mergeTextUpdates(out.splice(0));
+      return { sid, seq: seq++, shape, kind: "text", fields: { y } };
+    },
+  };
+}
+
+const paragraph = (text: string) => {
+  const p = new Y.XmlElement("p");
+  const run = new Y.XmlText();
+  run.insert(0, text);
+  p.insert(0, [run]);
+  return p;
+};
+const firstRun = (body: Y.XmlFragment) => (body.get(0) as Y.XmlElement).get(0) as Y.XmlText;
 
 function seeded(seed: number): () => number {
   return () => {
@@ -109,6 +149,71 @@ describe("Replica", () => {
     expect(replica.view().shapes.get(1n)?.fields.x).toBe(50);
   });
 
+  it("ends with the same text when typing arrives out of order and repeated", () => {
+    const a = typist(ana);
+    const b = typist(ben);
+    const ops: Op[] = [rect(me, 0, 1n)];
+    ops.push(a.type(1n, (body) => body.insert(0, [paragraph("shared")])));
+    b.see(ops[1]!);
+    for (let i = 0; i < 20; i++) {
+      // Each types a word before seeing the other's, then catches up.
+      const fromA = a.type(1n, (body) => firstRun(body).insert(0, `a${i} `));
+      const fromB = b.type(1n, (body) => firstRun(body).insert(firstRun(body).length, ` b${i}`));
+      a.see(fromB);
+      b.see(fromA);
+      ops.push(fromA, fromB);
+    }
+    const records = ops.map((op, offset) => ({ offset, payload: encodeOp(op) }));
+    const inOrder = new Replica(me);
+    for (const { offset, payload } of records) inOrder.deliver(offset, 0, payload);
+    const text = plainText(inOrder.confirmed.texts.get(1n)!.content);
+    expect(text).toContain("a19 ");
+    expect(text).toContain(" b19");
+
+    for (let seed = 1; seed <= 5; seed++) {
+      const random = seeded(seed);
+      const arrivals = [...records, ...records.filter(() => random() < 0.3)];
+      arrivals.sort(() => random() - 0.5);
+      const replica = new Replica(me);
+      for (const { offset, payload } of arrivals) replica.deliver(offset, 0, payload);
+      expect(stateHash(replica.confirmed)).toBe(stateHash(inOrder.confirmed));
+    }
+  });
+
+  it("shows pending text on the canvas until the log hands it back", () => {
+    const a = typist(me);
+    const replica = new Replica(me);
+    replica.deliver(0, 0, encodeOp(rect(ana, 0, 1n)));
+    const first = a.type(1n, (body) => body.insert(0, [paragraph("Hello")]));
+    const second = a.type(1n, (body) => firstRun(body).insert(5, " there"));
+    replica.edit(first);
+    replica.edit(second);
+    const shown = () => plainText(replica.view().texts.get(1n)?.content ?? []);
+    expect(shown()).toBe("Hello there");
+    expect(replica.confirmed.texts.size).toBe(0);
+    replica.deliver(1, 0, encodeOp(first));
+    expect(shown()).toBe("Hello there");
+    replica.deliver(2, 0, encodeOp(second));
+    expect(replica.pending).toEqual([]);
+    expect(plainText(replica.confirmed.texts.get(1n)!.content)).toBe("Hello there");
+  });
+
+  it("folds unsent typing into the newest unsent op for the body", () => {
+    const a = typist(me);
+    const replica = new Replica(me);
+    replica.deliver(0, 0, encodeOp(rect(ana, 0, 1n)));
+    replica.edit(a.type(1n, (body) => body.insert(0, [paragraph("one")])));
+    replica.edit(move(me, 1, 1n, 5));
+    for (const word of [" two", " three"]) {
+      const op = a.type(1n, (body) => firstRun(body).insert(firstRun(body).length, word));
+      expect(replica.amend("text", 1n, op.fields)).toBe(true);
+    }
+    expect(replica.pending.map(({ op }) => op.kind)).toEqual(["text", "patch"]);
+    expect(plainText(replica.view().texts.get(1n)!.content)).toBe("one two three");
+    replica.pending[0]!.sentAt = 0;
+    expect(replica.amend("text", 1n, a.type(1n, () => {}).fields)).toBe(false);
+  });
+
   it("lets a later remote write replace a confirmed local one", () => {
     const replica = new Replica(me);
     replica.deliver(0, 0, encodeOp(rect(ana, 0, 1n)));
@@ -123,8 +228,8 @@ describe("Replica", () => {
     replica.edit(rect(me, 0, 1n));
     replica.pending[0]!.sentAt = 0;
     replica.edit(move(me, 1, 1n, 1));
-    expect(replica.amend(1n, { x: 2, y: 3 })).toBe(true);
-    expect(replica.amend(2n, { x: 2 })).toBe(false);
+    expect(replica.amend("patch", 1n, { x: 2, y: 3 })).toBe(true);
+    expect(replica.amend("patch", 2n, { x: 2 })).toBe(false);
     expect(replica.pending.map(({ op }) => op.fields)).toEqual([
       rect(me, 0, 1n).fields,
       { x: 2, y: 3 },

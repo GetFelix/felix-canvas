@@ -2,7 +2,15 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
-import { EMPTY_DOC, applyInPlace, draft, inZOrder, stateHash, type Doc } from "@felix-canvas/model";
+import {
+  EMPTY_DOC,
+  applyInPlace,
+  draft,
+  freeze,
+  inZOrder,
+  stateHash,
+  type Doc,
+} from "@felix-canvas/model";
 
 import { displayName, signIn, signOut, signedIn, type OidcConfig } from "./auth.js";
 import { Chrome, showAccess } from "./chrome.js";
@@ -256,7 +264,7 @@ Object.assign(window, {
           const op = history.op(offset);
           if (op) applyInPlace(doc, op, offset);
         }
-        return stateHash(doc);
+        return stateHash(freeze(doc));
       },
     },
   },
