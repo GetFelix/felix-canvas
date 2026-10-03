@@ -1,0 +1,19 @@
+{
+  "name": "@felix-canvas/web",
+  "version": "0.1.0",
+  "description": "The Felix Canvas browser client",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@felix-canvas/model": "0.1.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  }
+}
