@@ -1,4 +1,5 @@
 import { STROKE_WIDTH, bounds, handles, type Box, type Shape } from "./shapes.js";
+import { BOX_PADDING, drawLayout } from "./textlayout.js";
 
 /** Which part of the world the canvas shows: `x, y` at its top-left corner. */
 export interface Camera {
@@ -16,6 +17,8 @@ export interface Palette {
   accent: string;
   accentSoft: string;
   handle: string;
+  /** Text colours by name; `ink` is the colour of text with none. */
+  text: Record<string, string>;
 }
 
 /** Another session's selection, drawn in its colour. */
@@ -34,6 +37,8 @@ export interface Scene {
   peers: PeerSelection[];
   /** Hidden while a shape is moving under the pointer. */
   handles: boolean;
+  /** The shape whose text is open in the editor, which draws it instead. */
+  editing: bigint | null;
 }
 
 const GRID = 24;
@@ -60,8 +65,16 @@ export function render(
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   const byId = new Map(scene.shapes.map((shape) => [shape.id, shape]));
+  const textColor = (name: string | undefined) => palette.text[name ?? "ink"] ?? palette.ink;
   for (const shape of scene.draft ? [...scene.shapes, scene.draft] : scene.shapes) {
     drawShape(ctx, shape, palette);
+    if (shape.text && shape.id !== scene.editing) {
+      const inBox = shape.type !== "text";
+      const box = bounds(shape);
+      const x = inBox ? box.x + BOX_PADDING : shape.x;
+      const y = inBox ? box.y + (box.h - shape.text.height) / 2 : shape.y;
+      drawLayout(ctx, shape.text, x, y, textColor);
+    }
   }
 
   const hovered = scene.hover === null ? undefined : byId.get(scene.hover);
@@ -91,12 +104,14 @@ export function render(
     }
   }
 
+  if (scene.draft?.type === "text") outline(ctx, toScreen(bounds(scene.draft)), palette.accent);
+
   const selected = scene.shapes.filter((shape) => scene.selection.has(shape.id));
   for (const shape of selected) {
     if (shape.type === "line") continue;
     outline(ctx, toScreen(bounds(shape)), palette.accent);
   }
-  if (scene.handles && selected.length === 1) {
+  if (scene.handles && selected.length === 1 && scene.editing === null) {
     const shape = selected[0]!;
     if (shape.type === "line") {
       ctx.strokeStyle = palette.accent;
@@ -156,8 +171,9 @@ function drawGrid(
     gridTile = { key, pattern: ctx.createPattern(tile, "repeat")! };
   }
   const scale = step / (Math.round(step * dpr) / dpr);
-  const offsetX = -camera.x * camera.zoom - size / 2;
-  const offsetY = -camera.y * camera.zoom - size / 2;
+  // Reduced to one tile: the pattern's transform loses precision far from the origin.
+  const offsetX = modulo(-camera.x * camera.zoom, step) - size / 2;
+  const offsetY = modulo(-camera.y * camera.zoom, step) - size / 2;
   gridTile.pattern.setTransform(
     new DOMMatrix().translateSelf(offsetX, offsetY).scaleSelf(scale / dpr, scale / dpr),
   );
@@ -165,10 +181,15 @@ function drawGrid(
   ctx.fillRect(0, 0, width, height);
 }
 
+function modulo(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor;
+}
+
 function trace(ctx: CanvasRenderingContext2D, shape: Shape): void {
   ctx.beginPath();
   switch (shape.type) {
-    case "rect": {
+    case "rect":
+    case "text": {
       const box = bounds(shape);
       ctx.rect(box.x, box.y, box.w, box.h);
       break;
@@ -204,6 +225,7 @@ function trace(ctx: CanvasRenderingContext2D, shape: Shape): void {
 }
 
 function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, palette: Palette): void {
+  if (shape.type === "text") return;
   trace(ctx, shape);
   if (shape.type === "rect" || shape.type === "ellipse") {
     ctx.fillStyle = palette.fill;
