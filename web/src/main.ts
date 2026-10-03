@@ -1,15 +1,20 @@
 import "@fontsource-variable/inter";
+import "@fontsource-variable/inter/wght-italic.css";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
 import {
   EMPTY_DOC,
+  TEXT_COLORS,
+  TEXT_SHAPES,
   applyInPlace,
   draft,
   freeze,
   inZOrder,
+  isBlank,
   stateHash,
   type Doc,
+  type TextBlock,
 } from "@felix-canvas/model";
 
 import { displayName, signIn, signOut, signedIn, type OidcConfig } from "./auth.js";
@@ -23,6 +28,8 @@ import { render, type Palette } from "./render.js";
 import { Scrubber } from "./scrubber.js";
 import { RoundTrips, Session } from "./session.js";
 import { readShape, type Shape } from "./shapes.js";
+import { TextEditor } from "./texteditor.js";
+import { BOX_PADDING, fontsLoaded, layout, lineTexts } from "./textlayout.js";
 
 /** Idle sessions still announce themselves this often, so peers know they are here. */
 const HEARTBEAT_MS = 3000;
@@ -80,16 +87,33 @@ const scrubber = new Scrubber(new HistoryFeed(gatewayUrl(), { room, token }));
 const person = personId(token);
 let name = ownName(person, token);
 
+const NO_TEXT: TextBlock[] = [];
+
 let shapesOf: { doc: Doc; shapes: Shape[] } = { doc: EMPTY_DOC, shapes: [] };
 function shapes(): Shape[] {
   const doc = scrubber.doc ?? session.replica.view();
   if (shapesOf.doc !== doc) {
-    shapesOf = { doc, shapes: inZOrder(doc).map(([id, state]) => readShape(id, state)) };
+    shapesOf = { doc, shapes: inZOrder(doc).map(([id, state]) => withText(doc, id, state)) };
   }
   return shapesOf.shapes;
 }
 
-const editor = new Editor(canvas, session, shapes);
+/** Read a shape and lay out its text. A text box takes its height, and maybe its width, from it. */
+function withText(doc: Doc, id: bigint, state: Parameters<typeof readShape>[1]): Shape {
+  const shape = readShape(id, state);
+  const content = doc.texts.get(id)?.content ?? NO_TEXT;
+  if (shape.type === "text") {
+    shape.text = layout(content, shape.grows ? Infinity : shape.w);
+    if (shape.grows) shape.w = Math.ceil(shape.text.width);
+    shape.h = shape.text.height;
+  } else if (TEXT_SHAPES.includes(shape.type) && !isBlank(content)) {
+    shape.text = layout(content, Math.max(1, Math.abs(shape.w) - BOX_PADDING * 2));
+  }
+  return shape;
+}
+
+const textEditor = new TextEditor(document.getElementById("text-layer")!, canvas, session);
+const editor = new Editor(canvas, session, shapes, textEditor);
 const peers = new Peers(document.getElementById("cursors")!);
 const chrome = new Chrome(session, editor, name, person);
 chrome.setAccount(displayName(token), room);
@@ -121,6 +145,9 @@ function readPalette(): Palette {
     accent: token("--accent"),
     accentSoft: token("--accent-soft"),
     handle: token("--handle"),
+    text: Object.fromEntries(
+      TEXT_COLORS.map((name) => [name, token(name === "ink" ? "--ink" : `--text-${name}`)]),
+    ),
   };
 }
 
@@ -131,6 +158,9 @@ session.onDocChange = () => {
   dirty = true;
 };
 session.onStatusChange = () => chrome.refresh();
+session.onApply = (op) => textEditor.receive(op);
+session.onRejoin = (doc) => textEditor.rebase(doc);
+textEditor.onTooLong = () => chrome.toast("That's too much text for one box. Try splitting it.");
 session.onPresence = (message) => {
   if (peers.update(message)) {
     chrome.setPeers(peers.list());
@@ -177,8 +207,13 @@ new ResizeObserver(() => {
   canvas.height = Math.round(canvas.clientHeight * dpr);
   dirty = true;
 }).observe(canvas);
-// The name tags drawn on the canvas need Inter loaded first.
+// The name tags drawn on the canvas need Inter loaded first, and text is
+// laid out again once it has.
 void document.fonts.ready.then(() => (dirty = true));
+void fontsLoaded.then(() => {
+  shapesOf = { doc: EMPTY_DOC, shapes: [] };
+  dirty = true;
+});
 
 let last = performance.now();
 function frame(now: number): void {
@@ -190,8 +225,12 @@ function frame(now: number): void {
     dirty = true;
   }
   if (dirty || moving) {
+    const all = shapes();
+    const editing = all.find((shape) => shape.id === textEditor.shape);
+    if (editing) textEditor.place(editing, editor.camera);
     render(ctx, canvas.clientWidth, canvas.clientHeight, editor.camera, palette, {
-      shapes: shapes(),
+      shapes: all,
+      editing: textEditor.shape,
       selection: editor.selection,
       hover: editor.hover,
       draft: editor.draft,
@@ -249,6 +288,28 @@ Object.assign(window, {
     echoTimes: (count: number) => echoTrips.latest(count),
     peerEditTimes: (count: number) => session.peerEditTrips.latest(count),
     cursorTimes: (count: number) => session.cursorTrips.latest(count),
+    textEchoTimes: (count: number) => textEditor.echoTrips.latest(count),
+    text: (id: string) => {
+      const text = shapes().find((shape) => shape.id === BigInt(id))?.text;
+      return text ? lineTexts(text) : null;
+    },
+    textHeight: (id: string) =>
+      shapes().find((shape) => shape.id === BigInt(id))?.text?.height ?? null,
+    layoutMs: (id: string) => {
+      const shape = shapes().find((candidate) => candidate.id === BigInt(id))!;
+      const content = session.replica.view().texts.get(shape.id)!.content;
+      const times: number[] = [];
+      for (let i = 0; i < 21; i++) {
+        // A width the cache has not seen, so every run lays out afresh.
+        const start = performance.now();
+        layout(content, shape.w + (i + 1) * 1e-6);
+        times.push(performance.now() - start);
+      }
+      return times.sort((a, b) => a - b)[10]!;
+    },
+    edit: (id: string) => editor.editText(shapes().find((shape) => shape.id === BigInt(id))!),
+    editing: () => textEditor.shape?.toString() ?? null,
+    centre: (x: number, y: number) => editor.centre(x, y),
     history: {
       ready: () => scrubber.ready,
       position: () => scrubber.position,

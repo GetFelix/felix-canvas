@@ -304,8 +304,10 @@ this tab is editing it.
 - Esc, a click outside the shape or choosing another tool closes it, and the canvas draws the body again.
 - A tab edits one body at a time.
 
-A text shape's width is a field like any other. Its height follows its
-content: every replica computes it from the same layout, so it is not stored.
+A text shape's width is a field like any other, and a width of 0 makes the box
+grow with its longest line, as a box made with a click does; dragging with the
+text tool, or a handle, sets a width. Its height follows its content: every
+replica computes it from the same layout, so it is not stored.
 In a rectangle or ellipse the text wraps to the box less a padding of 8 canvas
 units, is centred vertically, and runs past the box when it does not fit.
 
@@ -315,7 +317,7 @@ Viewers who are not editing see a body drawn by `web/src/textlayout.ts`, a
 small layout engine for this schema:
 
 1. Walk the body's derived content into blocks and runs, each run with one font, size, colour and decoration.
-2. Break lines greedily at the word boundaries `Intl.Segmenter` gives, measuring with `measureText` in the run's font. A word wider than the line breaks by character.
+2. Break lines greedily at the word boundaries `Intl.Segmenter` gives, measuring with `measureText` in the run's font. Only the boundaries CSS also breaks at count: after a space, after a hyphen between letters, and around an ideograph. Trailing spaces hang past the edge, as `pre-wrap` makes them. A word wider than the line breaks by character.
 3. Draw runs with `fillText`, underlines and link underlines as thin rectangles, list markers in the gutter.
 
 Layout happens in canvas units at the body's own size, and the camera transform
@@ -326,8 +328,12 @@ Inter to load, and a font load clears the cache.
 The editor and the canvas must wrap the same way, or text jumps when the
 editor opens. The editor's CSS matches the layout's rules (Inter, the same line
 heights, `white-space: pre-wrap`, `overflow-wrap: anywhere`, kerning on in
-both), and an end-to-end test compares the two line by line on a fixed set of
-bodies. Mixed-direction text is laid out run by run, without full
+both, and none of the font features the rest of the interface turns on), and
+an end-to-end test compares the two line by line, and their heights, on a
+fixed set of bodies. A line with several sizes on it takes its height from
+each font's ascent and descent, rounded as Blink rounds them, so mixed sizes
+stack the same way in both. List markers are `::marker` content in the editor
+and the same strings, with their trailing space, on the canvas. Mixed-direction text is laid out run by run, without full
 bidirectional reordering. That is a known limit of the first version.
 
 Two other ways were rejected. Drawing the DOM into the canvas through an SVG
