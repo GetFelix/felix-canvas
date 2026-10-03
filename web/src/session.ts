@@ -18,6 +18,18 @@ import {
 import { GatewayClient, type GatewayEvent, type Join } from "./gateway.js";
 import { Members, memberKey } from "./members.js";
 
+/** The room to open, and the ID token that signs the browser in. */
+export type RoomJoin = { room: string; token: string };
+
+/** The aliases of the room's streams and caches in the gateway's scope file. */
+export const OPS = "ops";
+const PRESENCE = "presence";
+const MEMBERS = "members";
+export const SNAPSHOTS = "snap";
+const SEQ = "seq";
+/** The snapshotter's key in {@link SNAPSHOTS}. */
+export const LATEST = "latest";
+
 /** The part of {@link GatewayClient} a session uses, so tests can stand in for it. */
 export type Gateway = Pick<
   GatewayClient,
@@ -29,12 +41,12 @@ export type Gateway = Pick<
   | "subscribe"
   | "publish"
   | "counterAdd"
-  | "snapshot"
-  | "onMembers"
-  | "onMember"
-  | "setMember"
-  | "removeMember"
-  | "watchMembers"
+  | "cacheGet"
+  | "onCacheEntries"
+  | "onCacheChange"
+  | "cachePut"
+  | "cacheDelete"
+  | "cacheWatch"
   | "throttle"
   | "close"
 >;
@@ -139,7 +151,7 @@ export class Session {
   refused: "signed_out" | "forbidden" | null = null;
 
   readonly #url: string;
-  readonly #join: Join;
+  readonly #join: RoomJoin;
   readonly #open: (url: string, join: Join) => Promise<Gateway>;
   #client: Gateway | null = null;
   #awaitingSnapshot = false;
@@ -160,7 +172,7 @@ export class Session {
 
   constructor(
     url: string,
-    join: Join,
+    join: RoomJoin,
     open: (url: string, join: Join) => Promise<Gateway> = GatewayClient.connect,
   ) {
     this.#url = url;
@@ -227,7 +239,7 @@ export class Session {
     const n = (this.#presenceSent.n + 1) % MAX_U32;
     this.#presenceSent = { n, at: performance.now() };
     const message = { ...presence, sid: this.sid, n, applied: this.replica.next };
-    void this.#client.publish("presence", encodePresence(message), false);
+    void this.#client.publish(PRESENCE, encodePresence(message), false);
   }
 
   /** Join the member list as `member`, or update the entry. It is refreshed until {@link leave}. */
@@ -266,10 +278,10 @@ export class Session {
     const key = memberKey(this.sid);
     // The socket message keeps order with a refresh still queued; the beacon
     // is what survives the page unloading.
-    this.#client?.removeMember(key);
+    this.#client?.cacheDelete(MEMBERS, key);
     navigator.sendBeacon(
       new URL("/members/leave", this.#url.replace(/^ws/, "http")),
-      JSON.stringify({ ...this.#join, key }),
+      JSON.stringify({ ...this.#join, cache: MEMBERS, key }),
     );
   }
 
@@ -280,7 +292,7 @@ export class Session {
 
   #writeMember(): void {
     if (this.#client && this.#member) {
-      this.#client.setMember(memberKey(this.sid), encodeMember(this.#member));
+      this.#client.cachePut(MEMBERS, memberKey(this.sid), encodeMember(this.#member));
     }
   }
 
@@ -304,20 +316,24 @@ export class Session {
       return;
     }
     this.#client = client;
-    client.onHello = (namespace, room, memberTtlMs) => {
-      this.room = { namespace, room };
+    client.onHello = (hello) => {
+      this.room = { namespace: hello.namespace, room: this.#join.room };
+      const memberTtlMs = hello.cacheTtlMs[MEMBERS] ?? 30_000;
       this.#refreshMemberEvery(Math.max(1000, Math.floor(memberTtlMs / 3)));
       this.onStatusChange();
     };
-    client.onMembers = (entries) => {
+    client.onCacheEntries = (cache, entries) => {
+      if (cache !== MEMBERS) return;
       this.members.reset(entries, performance.now());
       this.onMembersChange();
     };
-    client.onMember = (entry) => {
-      if (this.members.apply(entry, performance.now())) this.onMembersChange();
+    client.onCacheChange = (cache, entry) => {
+      if (cache === MEMBERS && this.members.apply(entry, performance.now())) {
+        this.onMembersChange();
+      }
     };
     client.onSubscribed = (stream, start, live) => {
-      if (stream !== "ops") return;
+      if (stream !== OPS) return;
       this.#resubscribing = false;
       this.#expected = start ?? live ?? 0;
       this.#retries = 0;
@@ -328,11 +344,11 @@ export class Session {
       this.onStatusChange();
     };
     client.onEvent = (event) => {
-      if (event.stream === "ops") this.#deliver(event);
+      if (event.stream === OPS) this.#deliver(event);
       else this.#presence(event);
     };
-    client.onError = (error, stream) => {
-      if (stream === "ops") {
+    client.onError = (error, stream, cache) => {
+      if (stream === OPS) {
         // Wait first, so a subscription Felix keeps refusing is not retried in
         // a tight loop. The first trim goes straight to rebuilding.
         const wait = error.code === "trimmed" && !this.rebuilding ? 0 : 1000;
@@ -342,17 +358,17 @@ export class Session {
           this.#resubscribing = false;
           this.#subscribeOps(client);
         }, wait);
-      } else if (stream === "presence") {
+      } else if (stream === PRESENCE) {
         // Cursors are worth nothing late, so only live ones are asked for again.
         setTimeout(() => {
-          if (this.#client === client) client.subscribe("presence", "live");
+          if (this.#client === client) client.subscribe(PRESENCE, "live");
         }, 1000);
       } else if (error.code === "signed_out" || error.code === "forbidden") {
         this.refused = error.code;
         this.onStatusChange();
-      } else if (error.code === "watch_failed") {
+      } else if (error.code === "watch_failed" && cache === MEMBERS) {
         setTimeout(() => {
-          if (this.#client === client) client.watchMembers();
+          if (this.#client === client) client.cacheWatch(MEMBERS);
         }, 1000);
       }
       console.warn(`gateway: ${error.code}: ${error.message}`);
@@ -369,8 +385,8 @@ export class Session {
 
     if (this.throttled) client.throttle(THROTTLE_BITS_PER_SECOND);
     this.#subscribeOps(client);
-    client.subscribe("presence", "live");
-    client.watchMembers();
+    client.subscribe(PRESENCE, "live");
+    client.cacheWatch(MEMBERS);
     this.#writeMember();
     // Resend before anything new, so this session's ops keep reaching the
     // log in seq order. The fold's dedupe absorbs any that landed already.
@@ -381,9 +397,9 @@ export class Session {
   #subscribeOps(client: Gateway): void {
     if (this.rebuilding || this.replica.next === 0) {
       this.#awaitingSnapshot = true;
-      client.subscribe("ops", "live");
+      client.subscribe(OPS, "live");
     } else {
-      client.subscribe("ops", this.replica.next);
+      client.subscribe(OPS, this.replica.next);
     }
   }
 
@@ -396,7 +412,7 @@ export class Session {
   async #loadSnapshot(client: Gateway): Promise<void> {
     let bytes: Uint8Array | null;
     try {
-      bytes = await client.snapshot();
+      bytes = await client.cacheGet(SNAPSHOTS, LATEST);
     } catch (error) {
       console.warn(`cannot read the snapshot: ${String(error)}`);
       setTimeout(() => this.#client === client && this.#subscribeOps(client), 1000);
@@ -444,7 +460,7 @@ export class Session {
     edit.sentAt = sentAt;
     // A failed publish may or may not have landed. Reconnecting resends every
     // pending op in order, which keeps the seq-order rule the dedupe needs.
-    client.publish("ops", encodeOp(edit.op)).then(
+    client.publish(OPS, encodeOp(edit.op)).then(
       () => this.ackTrips.add(performance.now() - sentAt),
       () => client.close(),
     );
@@ -455,7 +471,7 @@ export class Session {
     if (!client || this.#reserving || this.#seqEnd - this.#seq >= SEQ_BLOCK / 2) return;
     this.#reserving = true;
     try {
-      const end = await client.counterAdd(this.sid.toString(16).padStart(16, "0"), SEQ_BLOCK);
+      const end = await client.counterAdd(SEQ, this.sid.toString(16).padStart(16, "0"), SEQ_BLOCK);
       if (end <= MAX_U32 + 1) {
         this.#seq = end - SEQ_BLOCK;
         this.#seqEnd = end;
@@ -515,7 +531,7 @@ export class Session {
   #resubscribe(): void {
     if (this.#resubscribing || !this.#client) return;
     this.#resubscribing = true;
-    this.#client.subscribe("ops", this.replica.next);
+    this.#client.subscribe(OPS, this.replica.next);
   }
 
   #checkCaughtUp(): void {

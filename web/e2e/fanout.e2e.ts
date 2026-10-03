@@ -33,9 +33,13 @@ interface Summary {
 async function startViewers(count: number): Promise<{ stop: () => Promise<Summary> }> {
   const child = spawn(
     process.env.CANVAS_VIEWERS_BIN ?? `${root}target/release/examples/viewers`,
-    [String(count), `${root}dev/state/snapshotter.token`],
+    [String(count), `${root}dev/state/snapshotter.token`, "ops", "lobby"],
     {
-      env: { ...process.env, CANVAS_FELIX_CA_FILE: `${root}dev/state/broker-cert.pem` },
+      env: {
+        ...process.env,
+        CANVAS_FELIX_CA_FILE: `${root}dev/state/broker-cert.pem`,
+        CANVAS_SCOPE_FILE: `${root}deploy/scope.toml`,
+      },
       stdio: ["pipe", "pipe", "inherit"],
     },
   );

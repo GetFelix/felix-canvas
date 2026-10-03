@@ -43,6 +43,7 @@ jobs:
       - name: Integration tests
         run: |
           export CANVAS_FELIX_CA_FILE="$PWD/dev/state/broker-cert.pem"
+          export CANVAS_SCOPE_FILE="$PWD/deploy/scope.toml"
           cargo test --locked --test relay -- --include-ignored --nocapture
       - name: Felix logs
         if: failure()

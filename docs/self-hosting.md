@@ -136,6 +136,12 @@ Each room is two streams and three caches in Felix, one shard each:
 `canvas.seq.<room>`, `canvas.snap.<room>` and `canvas.members.<room>`.
 [design.md](design.md#authorization) explains why every room has its own.
 
+The gateway learns those names from its scope file, `deploy/scope.toml`, which
+the image carries at `/usr/share/felix-canvas/scope.toml` and the compose file
+points `CANVAS_SCOPE_FILE` at. The seed creates the same names, so leave the
+file as it is unless you change both.
+[protocol.md](protocol.md#the-scope-file) describes the format.
+
 ## TLS
 
 **Browsers to the canvas.** Serve the canvas over HTTPS anywhere but
@@ -311,6 +317,9 @@ so every room is copied to three brokers and survives losing one.
 The snapshotter waits for its token on a first install and for the brokers
 after that, so it restarts a few times before it settles.
 
+`gateway.scope` replaces the image's scope file with the TOML you give it,
+for instance a different member TTL: `--set-file gateway.scope=scope.toml`.
+
 Each `helm upgrade` of this chart runs the seed again, which adds new rooms and
 members and re-mints both tokens. The broker and the snapshotter read theirs
 only at start ([felix#955](https://github.com/gabloe/felix/issues/955)), so
@@ -363,7 +372,7 @@ control plane when it joins.
 | `CANVAS_OIDC_ISSUER` | `http://127.0.0.1:9400` | The identity provider browsers sign in with, as its issuer URL |
 | `CANVAS_OIDC_CLIENT_ID` | `felix-canvas` | The client registered for the canvas at that provider |
 | `CANVAS_OIDC_SCOPES` | `openid profile` | The scopes a browser asks the provider for |
-| `CANVAS_MEMBER_TTL_SECONDS` | `30` | How long a member entry outlives its last refresh |
+| `CANVAS_SCOPE_FILE` | required (`/usr/share/felix-canvas/scope.toml` in the image) | The scope file: the room's streams, caches and counters, and what a session may do with each. The member TTL is the `members` cache's `ttl_s`, 30 seconds |
 | `RUST_LOG` | `info` | Log filter |
 
 ### Snapshotter

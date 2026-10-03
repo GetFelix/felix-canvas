@@ -165,6 +165,8 @@ services:
       CANVAS_OIDC_ISSUER: ${CANVAS_OIDC_ISSUER}
       CANVAS_OIDC_CLIENT_ID: ${CANVAS_OIDC_CLIENT_ID}
       CANVAS_OIDC_SCOPES: ${CANVAS_OIDC_SCOPES:-openid profile}
+      # The canvas's scope file, which the image carries.
+      CANVAS_SCOPE_FILE: /usr/share/felix-canvas/scope.toml
       RUST_LOG: ${CANVAS_LOG:-info}
     ports:
       - "${CANVAS_BIND:-127.0.0.1}:${CANVAS_PORT:-8787}:8787"

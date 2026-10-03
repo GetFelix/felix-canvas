@@ -364,6 +364,7 @@ and Node 24.
 
    ```bash
    export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem
+   export CANVAS_SCOPE_FILE=deploy/scope.toml
    cargo run -p felix-canvas-gateway
    ```
 
@@ -393,7 +394,7 @@ and Node 24.
    both windows should share. `?room=studio` opens the other room, which only
    `ana` may open.
 
-`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variable
+`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variables
 from step 2 exported, the integration tests run against the same stack:
 
 ```bash

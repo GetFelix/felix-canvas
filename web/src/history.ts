@@ -1,11 +1,12 @@
 import { History, decodeOp, decodeSnapshot, type Op } from "@felix-canvas/model";
 
 import { GatewayClient, type GatewayEvent, type Join } from "./gateway.js";
+import { LATEST, OPS, SNAPSHOTS } from "./session.js";
 
 /** The part of {@link GatewayClient} the feed uses, so tests can stand in for it. */
 export type HistoryGateway = Pick<
   GatewayClient,
-  "onEvent" | "onSubscribed" | "onError" | "onClose" | "subscribe" | "snapshot" | "close"
+  "onEvent" | "onSubscribed" | "onError" | "onClose" | "subscribe" | "cacheGet" | "close"
 >;
 
 const RETRY_MS = 1000;
@@ -77,17 +78,17 @@ export class HistoryFeed {
     }
     this.#client = client;
     client.onSubscribed = (stream, _start, live) => {
-      if (stream !== "ops") return;
+      if (stream !== OPS) return;
       this.#subscribing = false;
       this.#trims = 0;
       if (!this.loaded) this.target = Math.max(this.target, live ?? 0);
       this.#checkLoaded();
     };
     client.onEvent = (event) => {
-      if (event.stream === "ops") this.#deliver(client, event);
+      if (event.stream === OPS) this.#deliver(client, event);
     };
     client.onError = (error, stream) => {
-      if (stream !== "ops") return;
+      if (stream !== OPS) return;
       if (error.code === "trimmed") {
         void this.#fromSnapshot(client);
       } else {
@@ -111,7 +112,7 @@ export class HistoryFeed {
   #subscribe(client: HistoryGateway): void {
     this.#subscribing = true;
     this.history ??= new History();
-    client.subscribe("ops", this.history.end);
+    client.subscribe(OPS, this.history.end);
   }
 
   async #fromSnapshot(client: HistoryGateway): Promise<void> {
@@ -120,7 +121,7 @@ export class HistoryFeed {
     if (this.#trims++ > 0) await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
     let snapshot = null;
     try {
-      const bytes = await client.snapshot();
+      const bytes = await client.cacheGet(SNAPSHOTS, LATEST);
       snapshot = bytes && decodeSnapshot(bytes);
     } catch (error) {
       console.warn(`cannot read the snapshot history starts from: ${String(error)}`);

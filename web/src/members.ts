@@ -1,5 +1,6 @@
 import { decodeMember, type Member } from "@felix-canvas/model";
 
+import type { CacheEntry } from "./gateway.js";
 import { PEER_COLORS, paletteIndex } from "./peers.js";
 
 /** Someone in the room, as their member entry describes them. */
@@ -7,15 +8,11 @@ export interface RoomMember extends Member {
   sid: bigint;
 }
 
-/** A member entry as the gateway reports it. */
-export interface MemberEntry {
-  /** The session id as 16 hex digits. */
-  key: string;
-  /** The encoded {@link Member}, or `null` when the entry was deleted. */
-  payload: Uint8Array | null;
-  /** Milliseconds until the entry expires, or `null` if it never does. */
-  expiresInMs: number | null;
-}
+/**
+ * A member entry as the gateway reports it: the key is the session id as 16
+ * hex digits and the payload an encoded {@link Member}.
+ */
+export type MemberEntry = CacheEntry;
 
 /** The member key for a session: its id as 16 hex digits. */
 export function memberKey(sid: bigint): string {

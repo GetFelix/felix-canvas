@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { defineConfig, devices } from "@playwright/test";
@@ -11,6 +11,16 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const state = `${root}dev/state`;
 const token = (name: string) =>
   existsSync(`${state}/${name}.token`) ? readFileSync(`${state}/${name}.token`, "utf8").trim() : "";
+
+// The canvas's scope file with a short member TTL, so a vanished tab drops out
+// within a test's time.
+function e2eScopeFile(): string {
+  const scope = readFileSync(`${root}deploy/scope.toml`, "utf8");
+  if (!scope.includes("ttl_s = 30")) throw new Error("deploy/scope.toml has no ttl_s = 30");
+  mkdirSync(state, { recursive: true });
+  writeFileSync(`${state}/scope.e2e.toml`, scope.replace("ttl_s = 30", "ttl_s = 6"));
+  return `${state}/scope.e2e.toml`;
+}
 
 export default defineConfig({
   testDir: "e2e",
@@ -35,8 +45,7 @@ export default defineConfig({
           url: "http://127.0.0.1:8787/metrics",
           env: {
             CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem`,
-            // Short, so a vanished tab drops out within the test's time.
-            CANVAS_MEMBER_TTL_SECONDS: "6",
+            CANVAS_SCOPE_FILE: e2eScopeFile(),
           },
           timeout: 300_000,
           reuseExistingServer: !process.env.CI,

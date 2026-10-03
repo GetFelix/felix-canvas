@@ -34,7 +34,7 @@ import {
 import type { Editor, Tool } from "./editor.js";
 import type { RoomMember } from "./members.js";
 import { MAX_NAME, PEER_COLORS, paletteIndex, type Peer } from "./peers.js";
-import type { Session } from "./session.js";
+import { OPS, type Session } from "./session.js";
 
 type Theme = "system" | "light" | "dark";
 
@@ -612,9 +612,13 @@ export class Chrome {
   async #fetchMetrics(): Promise<void> {
     try {
       const response = await fetch("/metrics");
-      const body = (await response.json()) as Record<string, { p50_us: number; count: number }>;
+      type Summary = { p50_us: number; count: number };
+      const body = (await response.json()) as {
+        browser_rtt?: Summary;
+        felix_publish_ack?: Record<string, Summary>;
+      };
       const browser = body.browser_rtt;
-      const felix = body.felix_publish_ack_ops;
+      const felix = body.felix_publish_ack?.[OPS];
       if (browser && felix)
         this.#metrics = { browser: browser.p50_us / 1000, felix: felix.p50_us / 1000 };
     } catch {
