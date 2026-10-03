@@ -1,7 +1,6 @@
 //! Felix connections: one per browser session, each with that session's own
 //! room token.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,7 +20,7 @@ use crate::room::{Room, SNAPSHOT_KEY};
 
 /// Where the brokers are and how to trust them, read once at startup.
 pub(crate) struct Brokers {
-    addrs: Vec<SocketAddr>,
+    addrs: Vec<String>,
     server_name: String,
     roots: Option<Arc<RootCertStore>>,
     tenant: String,
@@ -68,7 +67,15 @@ impl Brokers {
         let mut config = ClientConfig::optimized_defaults(quic);
         config.auth_tenant_id = Some(self.tenant.clone());
         config.token_provider = Some(tokens);
-        ClusterClient::connect(&self.addrs, &self.server_name, config)
+        let mut seeds = Vec::new();
+        for addr in &self.addrs {
+            match tokio::net::lookup_host(addr.as_str()).await {
+                Ok(found) => seeds.extend(found),
+                Err(err) => tracing::warn!(broker = %addr, "cannot resolve: {err}"),
+            }
+        }
+        anyhow::ensure!(!seeds.is_empty(), "no broker address resolves");
+        ClusterClient::connect(&seeds, &self.server_name, config)
             .await
             .context("connect to Felix")
     }

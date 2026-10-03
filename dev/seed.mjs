@@ -1,33 +1,41 @@
-// Seeds the development stack the way a deployment would: bootstrap a tenant
-// that trusts the dev IdP, create each room's streams and caches, and give
-// each room a role whose members may open it. Writes the broker's credential
-// and the snapshotter's token to the state directory. Safe to run again:
-// existing objects are kept.
+// Seeds a deployment: bootstrap a tenant that trusts the browsers' identity
+// provider, create each room's streams and caches, and give each room a role
+// whose members may open it. Writes the broker's credential and the
+// snapshotter's token to the state directory. Safe to run again: existing
+// objects are kept, and rooms or members added to CANVAS_ROOMS are created.
+//
+// Every setting is optional and defaults to the development stack in dev/.
+// docs/self-hosting.md describes each one.
 import { createHash } from "node:crypto";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 
-const CONTROL_PLANE = process.env.CONTROL_PLANE ?? "http://controlplane:8443";
-const BOOTSTRAP = process.env.BOOTSTRAP ?? "http://controlplane:9095";
-const BOOTSTRAP_TOKEN = process.env.BOOTSTRAP_TOKEN ?? "dev-bootstrap";
-// The control plane fetches keys over the compose network, but browsers reach
-// the IdP on the host, and the issuer is what they see.
-const IDP = process.env.IDP ?? "http://idp:9400";
-const ISSUER = process.env.IDP_ISSUER ?? "http://127.0.0.1:9400";
-const STATE = process.env.STATE_DIR ?? "/state";
-const TENANT = process.env.CANVAS_TENANT ?? "canvas";
-const NAMESPACE = process.env.CANVAS_NAMESPACE ?? "default";
-const AUDIENCE = "felix-canvas";
+const env = (name, fallback) => process.env[name] || fallback;
+
+const CONTROL_PLANE = env("CANVAS_FELIX_CONTROL_PLANE", "http://controlplane:8443");
+const BOOTSTRAP = env("CANVAS_FELIX_BOOTSTRAP", "http://controlplane:9095");
+const BOOTSTRAP_TOKEN = env("CANVAS_FELIX_BOOTSTRAP_TOKEN", "dev-bootstrap");
+const STATE = env("CANVAS_STATE_DIR", "/state");
+const TENANT = env("CANVAS_TENANT", "canvas");
+const NAMESPACE = env("CANVAS_NAMESPACE", "default");
+// Felix only issues tokens in exchange for an IdP token, so the service
+// accounts (admin, broker, snapshotter) sign in with dev/idp.mjs, which must
+// be reachable only from inside the deployment. See felix#954.
+const SERVICE_IDP = env("CANVAS_SERVICE_IDP", "http://idp:9400");
 const RETENTION_SECONDS = 30 * 24 * 60 * 60;
 
-// Who may open which room. Ana is in both, so the tests can show that a
-// session in one room cannot reach the other even for someone allowed in both.
-const MEMBERS = {
-  lobby: ["ana", "ben"],
-  studio: ["ana"],
-};
-
-// Felix keys RBAC on sha256(issuer|subject), not on the subject itself.
-const principal = (subject) => createHash("sha256").update(`${ISSUER}|${subject}`).digest("hex");
+// `room=member,member`, separated by spaces. A member is the value of the
+// browsers' subject claim, or `group:<name>` for everyone in an IdP group.
+// Ana is in both rooms, so the tests can show that a session in one room
+// cannot reach the other even for someone allowed in both.
+const MEMBERS = Object.fromEntries(
+  env("CANVAS_ROOMS", "lobby=ana,ben studio=ana")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((entry) => {
+      const [room, members = ""] = entry.split("=");
+      return [room, members.split(",").filter(Boolean)];
+    }),
+);
 
 async function request(method, url, { token, headers = {}, body } = {}) {
   const response = await fetch(url, {
@@ -50,10 +58,37 @@ async function request(method, url, { token, headers = {}, body } = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// A provider started alongside the seed may not be answering yet.
+async function discover(base) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await request("GET", `${base.replace(/\/$/, "")}/.well-known/openid-configuration`);
+    } catch (err) {
+      if (attempt === 30) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+}
+
+const service = await discover(SERVICE_IDP);
+const ISSUER = env("CANVAS_OIDC_ISSUER", service.issuer);
+const AUDIENCE = env("CANVAS_OIDC_AUDIENCE", env("CANVAS_OIDC_CLIENT_ID", "felix-canvas"));
+const JWKS_URL =
+  process.env.CANVAS_OIDC_JWKS_URL ||
+  (ISSUER === service.issuer ? `${SERVICE_IDP}/jwks.json` : (await discover(ISSUER)).jwks_uri);
+
+// Felix keys RBAC on sha256(issuer|subject), not on the subject itself.
+const principal = (issuer, subject) =>
+  createHash("sha256").update(`${issuer}|${subject}`).digest("hex");
+const serviceAccount = (name) => principal(service.issuer, name);
+const member = (name) =>
+  name.startsWith("group:") ? `group:${ISSUER}#${name.slice(6)}` : principal(ISSUER, name);
+
 async function exchange(subject, body) {
-  const { id_token } = await request("GET", `${IDP}/token?sub=${subject}&aud=${AUDIENCE}`);
-  const url = `${CONTROL_PLANE}/v1/tenants/${TENANT}/token/exchange`;
-  return (await request("POST", url, { token: id_token, body })).felix_token;
+  const url = `${SERVICE_IDP}/token?sub=${subject}&aud=felix-canvas`;
+  const { id_token } = await request("GET", url);
+  const exchangeUrl = `${CONTROL_PLANE}/v1/tenants/${TENANT}/token/exchange`;
+  return (await request("POST", exchangeUrl, { token: id_token, body })).felix_token;
 }
 
 const streams = `stream:${TENANT}/${NAMESPACE}/*`;
@@ -77,21 +112,30 @@ function roomPolicies(room) {
   ];
 }
 
-const rooms = Object.keys(MEMBERS);
+const groupsClaim = env("CANVAS_OIDC_GROUPS_CLAIM", "");
+const browsers = {
+  issuer: ISSUER,
+  audiences: [AUDIENCE],
+  jwks_url: JWKS_URL,
+  claim_mappings: {
+    subject_claim: env("CANVAS_OIDC_SUBJECT_CLAIM", "sub"),
+    ...(groupsClaim ? { groups_claim: groupsClaim } : {}),
+  },
+};
+const services = {
+  issuer: service.issuer,
+  audiences: ["felix-canvas"],
+  jwks_url: `${SERVICE_IDP}/jwks.json`,
+  claim_mappings: { subject_claim: "sub" },
+};
+
 console.log(`bootstrap tenant ${TENANT}`);
 await request("POST", `${BOOTSTRAP}/internal/bootstrap/tenants/${TENANT}/initialize`, {
   headers: { "x-felix-bootstrap-token": BOOTSTRAP_TOKEN },
   body: {
-    display_name: "Felix Canvas (development)",
-    idp_issuers: [
-      {
-        issuer: ISSUER,
-        audiences: [AUDIENCE],
-        jwks_url: `${IDP}/jwks.json`,
-        claim_mappings: { subject_claim: "sub" },
-      },
-    ],
-    initial_admin_principals: [principal("canvas-admin")],
+    display_name: "Felix Canvas",
+    idp_issuers: [services],
+    initial_admin_principals: [serviceAccount("canvas-admin")],
     policies: [
       { subject: "role:admin", object: streams, action: "stream.manage" },
       { subject: "role:admin", object: caches, action: "cache.manage" },
@@ -100,20 +144,24 @@ await request("POST", `${BOOTSTRAP}/internal/bootstrap/tenants/${TENANT}/initial
       { subject: "role:snapshotter", object: streams, action: "stream.subscribe" },
       { subject: "role:snapshotter", object: caches, action: "cache.read" },
       { subject: "role:snapshotter", object: caches, action: "cache.write" },
-      ...rooms.flatMap(roomPolicies),
     ],
     groupings: [
-      { user: principal("canvas-admin"), role: "role:admin" },
-      { user: principal("canvas-broker"), role: "role:broker" },
-      { user: principal("canvas-snapshotter"), role: "role:snapshotter" },
-      ...Object.entries(MEMBERS).flatMap(([room, users]) =>
-        users.map((user) => ({ user: principal(user), role: `role:room-${room}` })),
-      ),
+      { user: serviceAccount("canvas-admin"), role: "role:admin" },
+      { user: serviceAccount("canvas-broker"), role: "role:broker" },
+      { user: serviceAccount("canvas-snapshotter"), role: "role:snapshotter" },
     ],
   },
 });
 
 const admin = await exchange("canvas-admin", { audience: "felix-controlplane" });
+if (ISSUER !== service.issuer) {
+  console.log(`trust ${ISSUER} for browsers`);
+  await request("POST", `${CONTROL_PLANE}/v1/tenants/${TENANT}/idp-issuers`, {
+    token: admin,
+    body: browsers,
+  });
+}
+
 console.log(`namespace ${NAMESPACE}`);
 await request("POST", `${CONTROL_PLANE}/v1/tenants/${TENANT}/namespaces`, {
   token: admin,
@@ -129,7 +177,7 @@ const stream = (name, durable) => ({
   delivery: durable ? "AtLeastOnce" : "AtMostOnce",
   durable,
 });
-for (const room of rooms) {
+for (const [room, members] of Object.entries(MEMBERS)) {
   for (const [name, durable] of [
     [`canvas.ops.${room}`, true],
     [`canvas.presence.${room}`, false],
@@ -151,6 +199,20 @@ for (const room of rooms) {
     await request("POST", `${CONTROL_PLANE}/v1/tenants/${TENANT}/namespaces/${NAMESPACE}/caches`, {
       token: admin,
       body: { cache, display_name, shards: 1 },
+    });
+  }
+  // Adding a rule or an assignment that exists already changes nothing.
+  console.log(`role:room-${room} for ${members.join(", ") || "nobody"}`);
+  for (const policy of roomPolicies(room)) {
+    await request("POST", `${CONTROL_PLANE}/v1/tenants/${TENANT}/rbac/policies`, {
+      token: admin,
+      body: policy,
+    });
+  }
+  for (const name of members) {
+    await request("POST", `${CONTROL_PLANE}/v1/tenants/${TENANT}/rbac/groupings`, {
+      token: admin,
+      body: { user: member(name), role: `role:room-${room}` },
     });
   }
 }
