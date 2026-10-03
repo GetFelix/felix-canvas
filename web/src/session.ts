@@ -140,8 +140,11 @@ export class Session {
     };
     client.onError = (error, stream) => {
       if (stream === "ops") {
-        this.#resubscribing = false;
-        this.#resubscribe();
+        // Wait first, so a subscription Felix keeps refusing is not retried in a tight loop.
+        setTimeout(() => {
+          this.#resubscribing = false;
+          this.#resubscribe();
+        }, 1000);
       }
       console.warn(`gateway: ${error.code}: ${error.message}`);
     };

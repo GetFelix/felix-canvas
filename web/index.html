@@ -22,7 +22,7 @@
       <section id="joining" class="card joining">
         <img src="/felix-mark.png" alt="" width="40" height="40" />
         <h1 id="joining-title">Joining the room</h1>
-        <p id="joining-detail" class="mono">Connecting to the gateway</p>
+        <p id="joining-detail" class="mono">Connecting</p>
         <div class="progress"><div id="joining-bar"></div></div>
       </section>
 
@@ -30,8 +30,8 @@
         <img src="/felix-mark.png" alt="" width="48" height="48" />
         <h1>Start drawing</h1>
         <p>
-          Every shape is a record in this room's Felix log, so everyone here sees the same canvas.
-          Press <kbd>R</kbd> for a rectangle or <kbd>P</kbd> for the pen.
+          Everything you draw is saved and shared, so everyone here sees the same canvas. Press
+          <kbd>R</kbd> for a rectangle or <kbd>P</kbd> for the pen.
         </p>
       </section>
 
@@ -97,20 +97,20 @@
 
       <section id="status" class="popover status" role="dialog" aria-label="Sync status" hidden>
         <header>
-          <span>Room log</span>
-          <span id="status-stream" class="mono muted"></span>
+          <span>Sync</span>
+          <span id="status-room" class="mono muted"></span>
         </header>
         <dl>
           <div>
-            <dt>Log tail</dt>
+            <dt>Changes in this room</dt>
             <dd id="status-tail" class="mono"></dd>
           </div>
           <div>
-            <dt>Applied here</dt>
+            <dt>Synced here</dt>
             <dd id="status-applied" class="mono"></dd>
           </div>
           <div class="with-chart">
-            <dt>Edit round trip</dt>
+            <dt>Save time</dt>
             <dd id="status-edit" class="mono"></dd>
             <svg
               id="status-spark"
@@ -123,25 +123,25 @@
             </svg>
           </div>
           <div>
-            <dt>Cursor round trip</dt>
+            <dt>Cursor delay</dt>
             <dd id="status-cursor" class="mono"></dd>
           </div>
           <div>
-            <dt>Browser to gateway</dt>
+            <dt>Your connection</dt>
             <dd id="status-browser" class="mono"></dd>
           </div>
           <div>
-            <dt>Gateway to Felix ack</dt>
-            <dd id="status-felix" class="mono"></dd>
+            <dt>Server save</dt>
+            <dd id="status-server" class="mono"></dd>
           </div>
           <div>
-            <dt>State hash</dt>
+            <dt>Canvas version</dt>
             <dd id="status-hash" class="mono"></dd>
           </div>
         </dl>
         <p class="note">
-          Round trips are the p50 and p99 of the last ten seconds, from publish to this tab's own
-          delivery.
+          Times are the median and 99th percentile over the last ten seconds, from making a change
+          to seeing it confirmed.
         </p>
       </section>
 

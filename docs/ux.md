@@ -37,7 +37,7 @@ Five floating islands over a full-bleed canvas. No permanent side panels.
 - **Selection**: 1.5 px accent outline. Eight 8 x 8 px handles, white fill, 1.5 px accent border, 16 px hit area. Rotation by hovering 12 px outside a corner. Marquee in accent at 8% fill.
 - **Snapping**: snap to edges and centres of nearby shapes within 6 screen px. Guides are 1 px in a warm colour (`hsl(345, 80%, 58%)`) so they never read as selection, with distance labels in JetBrains Mono 11 px.
 - **Drag feel**: start a drag after 3 px of movement so clicks never nudge. Shapes follow the pointer exactly with no easing. Shift constrains to axis or 15 degree steps; Alt duplicates on drag.
-- **Context menu**: right-click opens a 220 px menu with the shortcut right-aligned in muted mono beside every item, Linear-style. Groups: edit (cut, copy, paste, duplicate, delete), arrange (front, back), and a Felix group ("Show edit history for this shape", "Copy offset").
+- **Context menu**: right-click opens a 220 px menu with the shortcut right-aligned in muted mono beside every item, Linear-style. Groups: edit (cut, copy, paste, duplicate, delete), arrange (front, back), and a history group ("Show edit history for this shape", "Copy link to this version").
 - **Undo**: per-user. `Cmd+Z` undoes only your own ops, emitted as new inverse ops on the log, so undo never rewrites history and other people's work is never reverted by you. This matches Figma's multiplayer undo rules ([Figma](https://www.figma.com/blog/how-figmas-multiplayer-technology-works/)).
 - **Command menu**: `Cmd+K` opens a searchable list of every action and room, which is Linear's single most important affordance ([Linear shortcuts](https://shortcut.fyi/linear-shortcuts)).
 
@@ -92,12 +92,12 @@ Tool tooltips appear after 500 ms on first hover and instantly when moving betwe
 
 History mode replaces the bottom tool bar with a full-width timeline (inset 12 px, 64 px tall). Entering it is 200 ms; the canvas keeps its zoom and position.
 
-- **Track**: the x axis is log offset, not wall time, labelled with both ("#18,422 · 14:03"). Above the track, a 16 px density histogram of ops per bucket, each bar tinted by the dominant author's colour, so bursts of work and who did them are visible at a glance.
-- **Markers**: snapshot positions as small diamonds; the retention floor as a hatched region at the left end labelled "Trimmed before #4,100".
-- **Playhead**: a 2 px accent line with a mono offset readout. Drag to scrub; the canvas re-renders every frame from the nearest snapshot plus ops.
+- **Track**: the x axis is the room's change count (its log offset), not wall time, labelled with both ("Change 18,422 · 14:03"). Above the track, a 16 px density histogram of ops per bucket, each bar tinted by the dominant author's colour, so bursts of work and who did them are visible at a glance.
+- **Markers**: snapshot positions as small diamonds; the retention floor as a hatched region at the left end labelled "History starts at change 4,100".
+- **Playhead**: a 2 px accent line with a mono change-number readout. Drag to scrub; the canvas re-renders every frame from the nearest snapshot plus ops.
 - **Controls**: play or pause (Space), speed 1x, 4x, 16x, step one op (left and right arrows, as in Replit's history), step 100 ops with Shift.
 - **Live edge**: the right end shows a "Live" pill. While you scrub, others keep editing; the track grows and the pill shows "+37 new". Click it or press `L` to return.
-- **While scrubbing**: shapes are read-only, remote cursors hide, a 1 px inset accent border tells you the canvas is not live. Hovering a shape shows "Created #1,204 by Ana, last edited #18,390".
+- **While scrubbing**: shapes are read-only, remote cursors hide, a 1 px inset accent border tells you the canvas is not live. Hovering a shape shows "Created by Ana at change 1,204, last edited at change 18,390".
 - **Restore to here** writes new ops that set the room to the scrubbed state. History is appended, never rewritten, which is the same promise Figma makes when restoring adds new checkpoints ([Figma](https://help.figma.com/hc/en-us/articles/360038006754-View-a-file-s-version-history)).
 
 ## Sync states
@@ -111,7 +111,7 @@ One status chip in the top-right island: an 8 px dot and a short label. It chang
 | Catching up | Offset gap detected, re-subscribing from last applied offset | Amber dot, "Catching up" and a thin determinate bar under the chip from gap start to tail | Canvas stays interactive; local edits still queue |
 | Reconnecting | Socket lost, retrying | Amber dot, "Reconnecting" after an 800 ms grace period | Nothing for brief drops, as the design promises |
 | Offline | Retries exhausted or browser offline | Grey dot, "Offline · 5 edits queued" | Bottom toast only if edits are queued, Figma-style |
-| Rejoining | Offset below retention, snapshot rejoin | Amber dot, "Rebuilding" | Canvas dims to 60% with a centred card: "Loading snapshot at #18,000, then 422 ops" |
+| Rejoining | Offset below retention, snapshot rejoin | Amber dot, "Rebuilding" | Canvas dims to 60% with a centred card: "Loading the canvas: 422 recent changes" |
 | Converged | After catching up or rejoining | Green check for 2 s, "Up to date" | Nothing |
 
 The transitions are where trust comes from: the user should see the gap named, the progress counted, and a clear "Up to date" at the end. Never show a spinner without a number.
@@ -132,6 +132,10 @@ Define these on `:root`, with dark overrides under `prefers-color-scheme: dark` 
 | `--accent` | `hsl(192, 95%, 29%)` | `hsl(192, 90%, 42%)` |
 | `--accent-soft` | accent at 10% | accent at 16% |
 | `--ok` / `--warn` / `--bad` | `hsl(152, 60%, 36%)` / `hsl(38, 92%, 44%)` / `hsl(0, 70%, 50%)` | `hsl(152, 55%, 48%)` / `hsl(40, 92%, 56%)` / `hsl(0, 75%, 62%)` |
+| `--accent-text` (on accent fills) | `#ffffff` | `hsl(222, 22%, 8%)` |
+| `--ink` (default shape stroke) | `hsl(222, 22%, 14%)` | `hsl(220, 14%, 90%)` |
+| `--shape-fill`, `--handle` | `#ffffff` | `hsl(222, 12%, 12%)` |
+| `--hover` / `--pressed` | `hsl(220, 14%, 95%)` / `hsl(220, 14%, 91%)` | `hsl(222, 10%, 18%)` / `hsl(222, 10%, 22%)` |
 
 - **Elevation**: two levels only. Islands use `0 1px 2px rgb(0 0 0 / .06), 0 4px 12px rgb(0 0 0 / .08)` in light. In dark, shadows barely read, so islands get a 1 px border plus `0 8px 24px rgb(0 0 0 / .45)`. Menus and popovers add 4 px more blur.
 - **Radius**: 6 px for buttons and inputs, 10 px for islands, 12 px for dialogs, full for avatars and pills.
@@ -174,16 +178,18 @@ Use [Lucide](https://lucide.dev) at 18 px with a 1.75 px stroke, the size and we
 - Assigning cyan to a person.
 - Animating remote shape moves with long easing; it reads as lag.
 
-## Felix-specific: make the log visible without a debug page
+## Felix-specific: show what Felix does without a debug page
 
 The app exists to show three Felix properties: fanout is cheap, a slow client hurts only itself, and replay by offset is free. Each gets one tasteful surface.
 
-1. **Round-trip number on the chip.** "Live · 23 ms" is the publish-to-own-delivery time, p50 over the last ten seconds, in mono. It is small and always there, which is what makes it credible.
-2. **Status popover** (click the chip). A 320 px card with four rows in mono: room head offset, your applied offset, round trip p50 and p99 with a 60-point sparkline, and the split between gateway legs and broker so the latency budget is visible. A fifth row shows viewers in the room. No other numbers.
-3. **Catching up as a feature, not an error.** The determinate bar names the gap ("Missed #18,201 to #18,640, replaying") and ends with "Up to date · state hash a3f9 matches". The hash check is demonstration 3 made visible.
+1. **Round-trip number on the chip.** "Live · 23 ms" is the time from making a change to seeing it confirmed (publish to own delivery on the op log), p50 over the last ten seconds, in mono. With no edits in that window it shows the same measurement on the presence stream, which every session publishes to at least every 3 seconds. It is small and always there, which is what makes it credible.
+2. **Status popover** (click the chip), titled "Sync". A 320 px card with rows in mono: "Changes in this room" (the log tail), "Synced here" (what this tab has applied), "Save time" p50 and p99 with a 60-point sparkline (the edit round trip), "Cursor delay", "Your connection" and "Server save" (the gateway's two legs, browser to gateway and gateway to Felix ack) so the latency budget is visible, and "Canvas version" (the state hash of the applied prefix). A row for viewers in the room comes with presence membership. No other numbers.
+3. **Catching up as a feature, not an error.** The determinate bar counts the gap ("Catching up on 439 changes") and ends with "Up to date · version a3f9 matches". The hash check is demonstration 3 made visible.
 4. **A slow-lane switch** in the popover: "Throttle this tab to 100 kbit/s". Presenters flip it, everyone else's chip keeps showing the same round trip, and this tab walks through catching up and converges. That is demonstration 2 on screen, with no terminal.
-5. **Offsets in the scrubber axis and the shape tooltip** ("last edited #18,390"). The log is the document, so the document's history is addressed by offset.
-6. **An Inspect view** (`\` toggles) that labels each shape with its last offset and author colour in 10 px mono badges. It is off by default and lives in the view menu, so the normal canvas stays clean.
-7. **Copy offset** in the context menu produces a link that opens the room scrubbed to that offset. Shareable history is the most persuasive replay demo.
+5. **Change numbers in the scrubber axis and the shape tooltip** ("last edited at change 18,390"). The log is the document, so its history is addressed by change number, which is the log offset underneath.
+6. **An Inspect view** (`\` toggles) that labels each shape with its last change number and author colour in 10 px mono badges. It is off by default and lives in the view menu, so the normal canvas stays clean.
+7. **Copy link to this version** in the context menu produces a link that opens the room scrubbed to that change. Shareable history is the most persuasive replay demo.
+
+The UI never exposes storage or transport terms: no "log", "offset", "stream", "replay", "gateway", "snapshot" or "hash" in any label, tooltip, toast, error or empty state. Use product words such as "Saved", "Syncing", "Reconnecting", "change" and "version"; the terms above stay in the design docs and the code.
 
 Rule for all of it: Felix detail is one click away, never in the way, typeset in the same mono at the same muted colour, and updated no faster than a person can read.

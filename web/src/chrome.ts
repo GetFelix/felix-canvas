@@ -135,7 +135,7 @@ export class Chrome {
     if (session.room) {
       element("workspace").textContent = session.room.namespace;
       element("room").textContent = session.room.room;
-      element("status-stream").textContent = `canvas.ops.${session.room.room}`;
+      element("status-room").textContent = session.room.room;
       document.title = `${session.room.room} · Felix Canvas`;
     }
 
@@ -178,16 +178,13 @@ export class Chrome {
     const room = session.room?.room;
     title.textContent = room ? `Joining ${room}` : "Joining the room";
     if (session.connection !== "live") {
-      detail.textContent =
-        session.connection === "connecting"
-          ? "Connecting to the gateway"
-          : "Reconnecting to the gateway";
+      detail.textContent = session.connection === "connecting" ? "Connecting" : "Reconnecting";
       bar.style.width = "0";
       return;
     }
     const total = session.tail + 1;
     const done = Math.min(session.replica.next, total);
-    detail.textContent = `Replaying the log: ${done.toLocaleString()} of ${total.toLocaleString()} ops`;
+    detail.textContent = `Loading the canvas: ${done.toLocaleString()} of ${total.toLocaleString()} changes`;
     bar.style.width = `${total === 0 ? 100 : (done / total) * 100}%`;
   }
 
@@ -196,18 +193,16 @@ export class Chrome {
     const edit = session.editTrips;
     const p50 = edit.quantile(0.5);
     const p99 = edit.quantile(0.99);
-    element("status-tail").textContent =
-      session.tail < 0 ? "empty" : `#${session.tail.toLocaleString()}`;
-    element("status-applied").textContent =
-      session.replica.next === 0 ? "none" : `#${(session.replica.next - 1).toLocaleString()}`;
+    element("status-tail").textContent = (session.tail + 1).toLocaleString();
+    element("status-applied").textContent = session.replica.next.toLocaleString();
     element("status-edit").textContent =
-      p50 === null || p99 === null ? "no edits yet" : `${formatMs(p50)} · p99 ${formatMs(p99)}`;
+      p50 === null || p99 === null ? "no changes yet" : `${formatMs(p50)} · p99 ${formatMs(p99)}`;
     const cursor = session.cursorTrips.quantile(0.5);
     element("status-cursor").textContent = cursor === null ? "none" : formatMs(cursor);
     element("status-browser").textContent = this.#metrics
       ? formatMs(this.#metrics.browser)
       : "none";
-    element("status-felix").textContent = this.#metrics ? formatMs(this.#metrics.felix) : "none";
+    element("status-server").textContent = this.#metrics ? formatMs(this.#metrics.felix) : "none";
     element("status-hash").textContent = stateHash(session.replica.confirmed);
 
     const samples = edit.latest(60);
