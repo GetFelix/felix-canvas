@@ -1,11 +1,13 @@
 name: Release
 
-# A v* tag releases that version: the GitHub release with its notes from
-# CHANGELOG.md, the Helm chart (attached, and pushed to GHCR as an OCI chart),
-# and the compose bundle. The images are not built here: images.yml already
-# builds, pushes and signs them for every v* tag, so this waits for those.
+# A v* tag releases that version: the images (through images.yml, which builds,
+# pushes and signs them), the GitHub release with its notes from CHANGELOG.md,
+# the Helm chart (attached, and pushed to GHCR as an OCI chart), and the
+# compose bundle.
 #
-# Run by hand with `tag` to release a tag that already exists. With `dry_run`,
+# Run by hand with `tag` to release a tag that already exists. Images and a
+# chart already published for that version are kept, not pushed again, so this
+# also finishes a release that failed part way. With `dry_run`,
 # or for a tag that does not exist yet, it runs every check and builds every
 # asset from the branch it was started on, and publishes nothing. Pull requests
 # get the same dry run for the version in the tree.
@@ -82,6 +84,18 @@ jobs:
         with:
           ref: ${{ steps.source.outputs.ref }}
 
+      # The changelog and the release scripts come from the commit this
+      # workflow runs from, so a tag cut before an entry was written, or before
+      # this workflow existed, can still be released from main.
+      - name: Release tools
+        uses: actions/checkout@v4
+        with:
+          path: .release-tools
+          sparse-checkout: |
+            CHANGELOG.md
+            .github/scripts
+          sparse-checkout-cone-mode: false
+
       - name: Plan
         id: plan
         env:
@@ -102,7 +116,7 @@ jobs:
       - name: The tag matches every version in the tree
         env:
           TAG: ${{ steps.plan.outputs.tag }}
-        run: python3 .github/scripts/check-release-version.py "$TAG"
+        run: python3 .release-tools/.github/scripts/check-release-version.py "$TAG"
 
       - name: Release notes from CHANGELOG.md
         env:
@@ -111,7 +125,7 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: |
           mkdir -p dist
-          python3 .github/scripts/changelog-section.py "$TAG" > notes.md
+          python3 .release-tools/.github/scripts/changelog-section.py "$TAG" .release-tools/CHANGELOG.md > notes.md
           download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           cat >> notes.md <<EOF
 
@@ -178,17 +192,27 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
-    name: Publish
+  images:
+    name: Images
     needs: build
     if: needs.build.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/images.yml
+    with:
+      tag: ${{ needs.build.outputs.tag }}
+
+  publish:
+    name: Publish
+    needs: [build, images]
+    if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    # Most of this is waiting for images.yml, which takes up to an hour.
-    timeout-minutes: 90
+    timeout-minutes: 20
     permissions:
       contents: write
       packages: write
-      actions: read
       # Keyless signing of the chart, as images.yml signs the images.
       id-token: write
     env:
@@ -213,40 +237,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # images.yml is the only workflow that publishes images. Done means the
-      # tag's manifest list exists and carries images.yml's signature for this
-      # tag; a failed images.yml run for the tag ends the wait.
-      - name: Wait for the images
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: The images and their digests
         run: |
-          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/images.yml@refs/tags/${TAG}"
           : > images.md
           for image in felix-canvas felix-canvas-snapshotter; do
             ref="ghcr.io/${OWNER}/${image}"
-            for try in $(seq 1 160); do
-              digest=$(docker buildx imagetools inspect "${ref}:${VERSION}" --format '{{json .Manifest}}' 2>/dev/null | jq -r .digest || true)
-              if [ -n "$digest" ] && cosign verify "${ref}@${digest}" \
-                  --certificate-identity "$identity" \
-                  --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null 2>&1; then
-                echo "${ref}:${VERSION} is ${digest}, signed"
-                echo "| \`${ref}:${VERSION}\` | \`${digest}\` |" >> images.md
-                break
-              fi
-              run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow images.yml --branch "$TAG" --limit 1 \
-                --json status,conclusion,url --jq '.[0] // empty | "\(.status) \(.conclusion) \(.url)"')
-              read -r status conclusion url <<< "$run"
-              if [ "$status" = completed ] && [ "$conclusion" != success ]; then
-                echo "::error::images.yml for ${TAG} ended ${conclusion}: ${url}"
-                exit 1
-              fi
-              if [ "$try" = 160 ]; then
-                echo "::error::${ref}:${VERSION} was not published and signed within 80 minutes"
-                exit 1
-              fi
-              echo "waiting for ${ref}:${VERSION} (images.yml: ${status:-not started})"
-              sleep 30
-            done
+            digest=$(docker buildx imagetools inspect "${ref}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)
+            cosign verify "${ref}@${digest}" \
+              --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/images\.yml@refs/" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+            echo "${ref}:${VERSION} is ${digest}, signed"
+            echo "| \`${ref}:${VERSION}\` | \`${digest}\` |" >> images.md
           done
 
       # A chart version already in the registry is attached as it is rather

@@ -1,31 +1,93 @@
 name: Images
 
-# Every pull request builds both images for both platforms and runs the
-# compose install from them. A v* tag also pushes them to GHCR, signs them,
-# and runs the install again from what was published.
+# Every pull request builds both images for both platforms, checks that the
+# publish step would combine exactly two platform digests per image, and runs
+# the compose install from the builds. release.yml calls this with a tag to
+# push the images to GHCR, sign them, and run the install again from what was
+# published. An image whose version is already published and signed is left
+# alone, so releasing a tag again only fills in what is missing.
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag to build and publish, such as v0.1.0
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: images-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type == 'branch' && github.ref != 'refs/heads/main' }}
+  group: images-${{ inputs.tag || github.ref }}
+  cancel-in-progress: ${{ format('{0}', inputs.tag) == '' && github.ref_type == 'branch' && github.ref != 'refs/heads/main' }}
 
 env:
   REGISTRY: ghcr.io
-  PUSH: ${{ github.ref_type == 'tag' }}
+  PUSH: ${{ inputs.tag && 'true' || 'false' }}
+  TAG: ${{ inputs.tag }}
 
 jobs:
+  # Which images to build. When publishing, an image whose version tag already
+  # exists with this workflow's signature is skipped rather than rebuilt and
+  # re-signed.
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      images: ${{ steps.plan.outputs.images }}
+    steps:
+      - uses: sigstore/cosign-installer@v3
+        if: env.PUSH == 'true'
+
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Images to build
+        id: plan
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          all='[{"name":"felix-canvas","dockerfile":"docker/gateway.Dockerfile"},{"name":"felix-canvas-snapshotter","dockerfile":"docker/snapshotter.Dockerfile"}]'
+          if [ "$PUSH" != true ]; then
+            echo "images=${all}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="${TAG#v}"
+          todo='[]'
+          for row in $(jq -c '.[]' <<< "$all"); do
+            name=$(jq -r .name <<< "$row")
+            ref="${REGISTRY}/${OWNER}/${name}"
+            digest=$(docker buildx imagetools inspect "${ref}:${version}" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest // empty' || true)
+            if [ -n "$digest" ] && cosign verify "${ref}@${digest}" \
+                --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/images\.yml@refs/" \
+                --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null 2>&1; then
+              echo "${ref}:${version} is already published and signed (${digest}); skipping it"
+            else
+              echo "${ref}:${version} will be built and published"
+              todo=$(jq -c --argjson row "$row" '. + [$row]' <<< "$todo")
+            fi
+          done
+          echo "images=${todo}" >> "$GITHUB_OUTPUT"
+
   # Each platform builds on a runner of its own architecture and, on a tag, is
   # pushed by digest alone; `manifest` then tags one list over both and signs
   # it. This is how Felix publishes its images.
   build:
     name: Image ${{ matrix.image.name }} (${{ matrix.platform.arch }})
+    needs: plan
+    if: needs.plan.outputs.images != '[]'
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 45
     permissions:
@@ -34,11 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - name: felix-canvas
-            dockerfile: docker/gateway.Dockerfile
-          - name: felix-canvas-snapshotter
-            dockerfile: docker/snapshotter.Dockerfile
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
         platform:
           - name: linux/amd64
             arch: amd64
@@ -47,20 +105,10 @@ jobs:
             arch: arm64
             runner: ubuntu-24.04-arm
     steps:
+      # release.yml has checked that the tag matches the versions in the tree.
       - uses: actions/checkout@v4
-
-      - name: The tag matches the versions the install pins
-        if: env.PUSH == 'true'
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          grep -q "felix-canvas:\${CANVAS_VERSION:-${version}}" deploy/compose/docker-compose.yml || {
-            echo "::error::deploy/compose/docker-compose.yml does not default CANVAS_VERSION to ${version}"
-            exit 1
-          }
-          grep -qx "appVersion: \"${version}\"" deploy/helm/felix-canvas/Chart.yaml || {
-            echo "::error::deploy/helm/felix-canvas/Chart.yaml does not set appVersion to ${version}"
-            exit 1
-          }
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -99,19 +147,25 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
 
+      # Recorded on every run, so a pull request exercises the same artifact
+      # names the publish step combines. The `--` separators keep one image's
+      # download pattern from matching another image whose name extends it.
       - name: Record the digest
-        if: env.PUSH == 'true'
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
+          ARCH: ${{ matrix.platform.arch }}
         run: |
           mkdir -p "${RUNNER_TEMP}/digests"
-          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+          if [ "$PUSH" = true ]; then
+            touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+          else
+            touch "${RUNNER_TEMP}/digests/not-pushed-${ARCH}"
+          fi
 
       - name: Upload the digest
-        if: env.PUSH == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          name: digests--${{ matrix.image.name }}--${{ matrix.platform.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -124,10 +178,12 @@ jobs:
           path: ${{ runner.temp }}/image.tar
           retention-days: 1
 
+  # On a pull request this only checks that each image's download pattern finds
+  # exactly its own two platform digests.
   manifest:
-    name: Publish
-    needs: build
-    if: github.ref_type == 'tag'
+    name: ${{ inputs.tag && 'Publish' || 'Publish (dry run)' }}
+    needs: [plan, build]
+    if: needs.plan.outputs.images != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -139,20 +195,35 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [felix-canvas, felix-canvas-snapshotter]
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
     steps:
       - name: Download the platform digests
         uses: actions/download-artifact@v4
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ matrix.image }}-*
+          pattern: digests--${{ matrix.image.name }}--*
           merge-multiple: true
 
+      - name: Exactly two platform digests
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ matrix.image.name }}
+        run: |
+          ls -1
+          count=$(find . -type f | wc -l)
+          if [ "$count" -ne 2 ]; then
+            echo "::error::expected 2 platform digests for ${IMAGE}, found ${count}"
+            exit 1
+          fi
+
       - uses: docker/setup-buildx-action@v3
+        if: env.PUSH == 'true'
 
       - uses: sigstore/cosign-installer@v3
+        if: env.PUSH == 'true'
 
       - name: Log in to GHCR
+        if: env.PUSH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -161,26 +232,23 @@ jobs:
 
       # `latest` only for a version without a pre-release suffix.
       - name: Tags
+        if: env.PUSH == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=${{ inputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }}
+            type=raw,value=latest,enable=${{ !contains(inputs.tag, '-') }}
 
       - name: Create the manifest list
+        if: env.PUSH == 'true'
         id: merge
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.name }}
         working-directory: ${{ runner.temp }}/digests
         run: |
-          count=$(ls | wc -l)
-          if [ "$count" -ne 2 ]; then
-            echo "::error::expected 2 platform digests for ${IMAGE}, found ${count}"
-            exit 1
-          fi
           # shellcheck disable=SC2046
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
@@ -191,12 +259,14 @@ jobs:
 
       # By digest, never by tag: a tag can be moved and the signature would follow it.
       - name: Sign
+        if: env.PUSH == 'true'
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.name }}
           DIGEST: ${{ steps.merge.outputs.digest }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
       - name: What was published
+        if: env.PUSH == 'true'
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           DIGEST: ${{ steps.merge.outputs.digest }}
@@ -204,11 +274,11 @@ jobs:
           printf '```\n%s\ndigest: %s\n```\n' "$TAGS" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   # The release compose file, started the way the self-hosting guide starts
-  # it: from the images this run built, or on a tag from the ones it published.
+  # it: from the images this run built, or when publishing from GHCR.
   install:
     name: Compose install (${{ matrix.idp }})
-    needs: [build, manifest]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.manifest.result != 'failure' }}
+    needs: [plan, build, manifest]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.build.result != 'failure' && needs.manifest.result != 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -230,9 +300,11 @@ jobs:
       COMPOSE: docker compose ${{ matrix.env_files }} ${{ matrix.files }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Load the images this run built
-        if: github.ref_type != 'tag'
+        if: env.PUSH != 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: image-*
@@ -240,8 +312,8 @@ jobs:
 
       - name: Choose the images
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            echo "CANVAS_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          if [ "$PUSH" = true ]; then
+            echo "CANVAS_VERSION=${TAG#v}" >> "$GITHUB_ENV"
           else
             for tar in "$RUNNER_TEMP"/images/*/image.tar; do docker load -i "$tar"; done
             echo "CANVAS_VERSION=ci" >> "$GITHUB_ENV"
@@ -284,7 +356,7 @@ jobs:
   chart:
     name: Helm chart on kind
     needs: build
-    if: github.ref_type != 'tag'
+    if: ${{ !inputs.tag }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

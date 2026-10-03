@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that every version in the tree matches a release tag.
 
-Usage: check-release-version.py v0.2.0
+Usage: check-release-version.py v0.2.0, from the root of the tree to check.
 
 The images are tagged from the git tag, the chart and the packages from their
 own files, and the install from the compose defaults, so a missed bump ships a
@@ -14,7 +14,9 @@ import re
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
+# The tree being released: the working directory, which need not be the
+# checkout this script came from.
+REPO = Path.cwd()
 
 VERSION = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*?)?"
 # Ends a version, so a lazy pre-release suffix is not cut short.

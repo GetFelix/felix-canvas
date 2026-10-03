@@ -237,7 +237,7 @@ this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
 | Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound, two people typing into one text box at once and ending with the same text, the canvas breaking a fixed set of bodies into the same lines as the editor, every control and shortcut of the text bar in both themes, pasted HTML keeping only the formats text can have, carets staying on their characters while others type, and an open editor keeping its caret and unsent typing through a rejoin from the snapshot. The history, cold-join and slow-connection tests have typing in their load. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 | Failover against a Felix cluster | Starts the three-broker stack and runs `web/e2e/failover.e2e.ts`: two browsers edit while a third watches the room's history, the broker that owns the room's op log is killed, and both editors end with the same state hash, which is also the fold of the log read back from offset 0. Every edit a browser saw acknowledged is in that log, the history view reaches the same state, the snapshotter carries on, and a browser that joins afterwards matches. It is a separate job, and not a required check, because it needs three brokers and stops one |
 | Release (workflow) | On pull requests, a dry run of the release: the tree's versions agree, the `CHANGELOG.md` section for that version exists, and the chart and the compose bundle package. See [Releasing](#releasing) |
-| Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page and once with Dex. On a `v*` tag it pushes, merges and signs the images first and runs the install from GHCR. On pull requests it also installs the Felix chart and this chart on kind and runs the same test through it |
+| Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page and once with Dex. Every run also checks that each image's publish step would find exactly its own two platform digests. When the Release workflow calls it with a tag, it pushes, merges and signs the images first, skipping any already published, and runs the install from GHCR. On pull requests it also installs the Felix chart and this chart on kind and runs the same test through it |
 
 ## Releasing
 
@@ -261,19 +261,21 @@ pre-release. To cut one:
    git tag -a v0.2.0 -m v0.2.0 && git push origin v0.2.0
    ```
 
-The tag starts two workflows. Images builds, pushes and signs both images, as
-it does for every tag. Release checks that the tag matches every version in
-the tree, waits until both images for the tag are published and signed,
-packages the chart and pushes it to `oci://ghcr.io/gabloe/charts/felix-canvas`
+The tag starts the Release workflow. It checks that the tag matches every
+version in the tree, runs the Images workflow to build, push and sign both
+images and run the compose install from them, packages the chart and pushes it to `oci://ghcr.io/gabloe/charts/felix-canvas`
 signed with cosign, bundles `deploy/compose/` as
 `felix-canvas-compose-<version>.tar.gz`, and creates the GitHub release. Its
 notes are the version's `CHANGELOG.md` section, an install block and the image
 digests, and its assets are the chart, the compose bundle and `SHA256SUMS`. A
 version with a `-` suffix is marked as a pre-release.
 
-To release a tag that already exists, run the Release workflow by hand with
-the tag as `tag`. Every pull request also runs it as a dry run against the
-version in the tree.
+To release a tag that already exists, or finish a release that failed part
+way, run the Release workflow by hand from `main` with the tag as `tag`. An
+image or chart already published and signed for that version is kept rather
+than built and pushed again. The notes and the release scripts come from the
+branch the workflow runs from, so a changelog entry fixed on `main` is used.
+Every pull request also runs it as a dry run against the version in the tree.
 
 ## Measuring the performance targets
 

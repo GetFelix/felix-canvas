@@ -18,12 +18,12 @@ gateway, the snapshotter and the seed read.
 | `idp` | the snapshotter image | No | The development sign-in page, while you try it out |
 
 Both canvas images are built for `linux/amd64` and `linux/arm64` and signed
-with cosign by the images workflow when a release is tagged. The release notes
+with cosign by the images workflow when a release is published. The release notes
 list each image's digest. To check one before you run it:
 
 ```bash
 cosign verify ghcr.io/gabloe/felix-canvas:0.1.0 \
-  --certificate-identity-regexp 'https://github.com/gabloe/felix-canvas/.github/workflows/images.yml@refs/tags/v.*' \
+  --certificate-identity-regexp 'https://github.com/gabloe/felix-canvas/.github/workflows/images.yml@refs/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
