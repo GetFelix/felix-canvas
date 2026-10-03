@@ -77,14 +77,7 @@ impl Brokers {
         config.publish_conn_pool = 1;
         config.event_conn_pool = 1;
         config.cache_conn_pool = 1;
-        let mut seeds = Vec::new();
-        for addr in &self.addrs {
-            match tokio::net::lookup_host(addr.as_str()).await {
-                Ok(found) => seeds.extend(found),
-                Err(err) => tracing::warn!(broker = %addr, "cannot resolve: {err}"),
-            }
-        }
-        anyhow::ensure!(!seeds.is_empty(), "no broker address resolves");
+        let mut seeds = crate::resolve_brokers(&self.addrs).await?;
         // Felix tries the addresses in order and waits out a handshake
         // timeout on each that is down, so starting every connection at the
         // same one would make every session pay for that broker's loss.

@@ -106,3 +106,17 @@ impl Config {
         })
     }
 }
+
+/// Resolve `CANVAS_FELIX_BROKERS` entries to addresses. A name that does not
+/// resolve is skipped with a warning; it is an error only if none does.
+pub async fn resolve_brokers(brokers: &[String]) -> Result<Vec<SocketAddr>> {
+    let mut seeds = Vec::new();
+    for addr in brokers {
+        match tokio::net::lookup_host(addr.as_str()).await {
+            Ok(found) => seeds.extend(found),
+            Err(err) => tracing::warn!(broker = %addr, "cannot resolve: {err}"),
+        }
+    }
+    anyhow::ensure!(!seeds.is_empty(), "no broker address resolves");
+    Ok(seeds)
+}

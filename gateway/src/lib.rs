@@ -38,7 +38,7 @@ use serde_json::{Value, json};
 use tower_http::services::ServeDir;
 
 pub use access::Refused;
-pub use config::Config;
+pub use config::{Config, resolve_brokers};
 pub use metrics::{Metrics, Snapshot, Summary};
 
 use access::ControlPlane;
