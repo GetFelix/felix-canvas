@@ -29,7 +29,10 @@ cosign verify ghcr.io/gabloe/felix-canvas:0.1.0 \
 
 ## Install with Docker Compose
 
-You need Docker with Compose 2.20 or later, and about 2 cores and 2 GB of memory.
+You need Docker with Compose 2.20 or later, about 2 cores and 2 GB of memory,
+and disk for the drawings: a fresh install with two rooms takes about 100 MB,
+because the broker reserves a segment up front for each log a room writes to
+(see `FELIX_SEGMENT_BYTES`).
 
 1. Get the compose file and its settings for a release. They are in
    `deploy/compose/` of the release's source:
@@ -251,6 +254,7 @@ supported one.
 | `CANVAS_VERSION` | the release | The canvas images' tag |
 | `FELIX_VERSION` | the release's Felix | The Felix images' tag |
 | `FELIX_OIDC_ALGORITHMS` | `ES256,RS256` | ID token signing algorithms Felix accepts |
+| `FELIX_SEGMENT_BYTES` | `16777216` | The broker's log segment size. Each log a room writes to reserves a whole segment on disk up front, so this sets what a room costs before anyone draws. Felix's own default is 256 MiB |
 | `FELIX_TOKEN_TTL_SECONDS` | `2592000` | How long a token from the control plane lasts, browser sessions' included. Sessions refresh theirs; the broker's and snapshotter's last until a restart |
 | `FELIX_LOG`, `CANVAS_LOG` | `info` | Log filters for Felix and the gateway |
 
