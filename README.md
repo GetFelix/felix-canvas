@@ -64,16 +64,15 @@ and a room keeps working when its broker dies through Felix
 
 ## Quick start
 
-You need Docker with Compose 2.20 or later. No release is tagged yet, so build
-the two images from a clone and start the compose install with them:
+You need Docker with Compose 2.20 or later. Download the compose install from
+the [latest release](https://github.com/gabloe/felix-canvas/releases/latest)
+and start it:
 
 ```bash
-git clone https://github.com/gabloe/felix-canvas
-cd felix-canvas
-# change FELIX_BOOTSTRAP_TOKEN and FELIX_RAFT_PEER_TOKEN in deploy/compose/.env first
-docker build -f docker/gateway.Dockerfile -t ghcr.io/gabloe/felix-canvas:dev .
-docker build -f docker/snapshotter.Dockerfile -t ghcr.io/gabloe/felix-canvas-snapshotter:dev .
-CANVAS_VERSION=dev docker compose -f deploy/compose/docker-compose.yml up -d
+curl -fsSL https://github.com/gabloe/felix-canvas/releases/download/v0.1.0/felix-canvas-compose-0.1.0.tar.gz | tar xz
+cd felix-canvas-compose-0.1.0
+# change FELIX_BOOTSTRAP_TOKEN and FELIX_RAFT_PEER_TOKEN in .env first
+docker compose up -d
 ```
 
 Open <http://localhost:8787> in two windows, continue as `ana` or `ben`, and

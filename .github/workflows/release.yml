@@ -1,0 +1,312 @@
+name: Release
+
+# A v* tag releases that version: the images (through images.yml, which builds,
+# pushes and signs them), the GitHub release with its notes from CHANGELOG.md,
+# the Helm chart (attached, and pushed to GHCR as an OCI chart), and the
+# compose bundle.
+#
+# Run by hand with `tag` to release a tag that already exists. Images and a
+# chart already published for that version are kept, not pushed again, so this
+# also finishes a release that failed part way. With `dry_run`,
+# or for a tag that does not exist yet, it runs every check and builds every
+# asset from the branch it was started on, and publishes nothing. Pull requests
+# get the same dry run for the version in the tree.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release, such as v0.1.0
+        required: true
+        type: string
+      dry_run:
+        description: Check and build everything, publish nothing
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'pull_request' && github.ref || inputs.tag || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Check and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - name: Choose the source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          case "$EVENT" in
+            push)
+              echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+              echo "ref=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              ;;
+            workflow_dispatch)
+              echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+              if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${INPUT_TAG}" >/dev/null 2>&1; then
+                echo "ref=refs/tags/${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+                echo "publish=$([ "$DRY_RUN" = true ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+              elif [ "$DRY_RUN" = true ]; then
+                echo "::notice::${INPUT_TAG} does not exist, so this dry run builds ${GITHUB_REF_NAME}"
+                echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+                echo "publish=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "::error::${INPUT_TAG} is not a tag. Push the tag first, or check dry_run to rehearse it."
+                exit 1
+              fi
+              ;;
+            *)
+              # The tag is read from the tree once it is checked out.
+              echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+
+      # The changelog and the release scripts come from the commit this
+      # workflow runs from, so a tag cut before an entry was written, or before
+      # this workflow existed, can still be released from main.
+      - name: Release tools
+        uses: actions/checkout@v4
+        with:
+          path: .release-tools
+          sparse-checkout: |
+            CHANGELOG.md
+            .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Plan
+        id: plan
+        env:
+          TAG: ${{ steps.source.outputs.tag }}
+          PUBLISH: ${{ steps.source.outputs.publish }}
+        run: |
+          if [ -z "$TAG" ]; then
+            TAG="v$(grep -m1 -oP '^version\s*=\s*"\K[^"]+' gateway/Cargo.toml)"
+          fi
+          version="${TAG#v}"
+          {
+            echo "tag=${TAG}"
+            echo "version=${version}"
+            echo "prerelease=$([[ "$version" == *-* ]] && echo true || echo false)"
+            echo "publish=${PUBLISH}"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: The tag matches every version in the tree
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: python3 .release-tools/.github/scripts/check-release-version.py "$TAG"
+
+      - name: Release notes from CHANGELOG.md
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          mkdir -p dist
+          python3 .release-tools/.github/scripts/changelog-section.py "$TAG" .release-tools/CHANGELOG.md > notes.md
+          download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          cat >> notes.md <<EOF
+
+          ## Install
+
+          With Docker Compose:
+
+          \`\`\`bash
+          curl -fsSL ${download}/felix-canvas-compose-${VERSION}.tar.gz | tar xz
+          cd felix-canvas-compose-${VERSION}
+          # change FELIX_BOOTSTRAP_TOKEN and FELIX_RAFT_PEER_TOKEN in .env first
+          docker compose up -d
+          \`\`\`
+
+          On Kubernetes, next to the Felix chart:
+
+          \`\`\`bash
+          helm install felix-canvas oci://ghcr.io/${OWNER}/charts/felix-canvas --version ${VERSION} -f canvas-values.yaml
+          \`\`\`
+
+          [docs/self-hosting.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/self-hosting.md) covers your own identity provider, TLS, backups, upgrades and the chart's values.
+          EOF
+          cat notes.md
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+
+      - name: Package the chart
+        run: |
+          helm lint deploy/helm/felix-canvas
+          helm package deploy/helm/felix-canvas --destination dist
+
+      # The whole directory, so files added beside the compose file ship
+      # without a change here.
+      - name: Bundle the compose install
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          name="felix-canvas-compose-${VERSION}"
+          mkdir -p "stage/${name}"
+          cp -a deploy/compose/. "stage/${name}/"
+          # The version check already holds these at the version; this keeps
+          # the bundle pinned even if a default were added without one.
+          find "stage/${name}" -name '*.y*ml' -exec \
+            sed -i -E "s/\\\$\\{CANVAS_VERSION:-[^}]*\\}/\${CANVAS_VERSION:-${VERSION}}/g" {} +
+          # shellcheck disable=SC2016
+          grep -h -o 'felix-canvas[a-z-]*:${CANVAS_VERSION:-[^}]*}' "stage/${name}"/*.y*ml | sort -u
+          (cd "stage/${name}" && docker compose config --quiet)
+          tar -C stage --sort=name --owner=0 --group=0 --numeric-owner \
+            --mtime="@$(git log -1 --format=%ct)" -czf "dist/${name}.tar.gz" "${name}"
+          tar -tzf "dist/${name}.tar.gz"
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- * | tee SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            dist/
+            notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  images:
+    name: Images
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/images.yml
+    with:
+      tag: ${{ needs.build.outputs.tag }}
+
+  publish:
+    name: Publish
+    needs: [build, images]
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      packages: write
+      # Keyless signing of the chart, as images.yml signs the images.
+      id-token: write
+    env:
+      TAG: ${{ needs.build.outputs.tag }}
+      VERSION: ${{ needs.build.outputs.version }}
+      OWNER: ${{ github.repository_owner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+
+      - uses: sigstore/cosign-installer@v3
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: The images and their digests
+        run: |
+          : > images.md
+          for image in felix-canvas felix-canvas-snapshotter; do
+            ref="ghcr.io/${OWNER}/${image}"
+            digest=$(docker buildx imagetools inspect "${ref}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)
+            cosign verify "${ref}@${digest}" \
+              --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/images\.yml@refs/" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+            echo "${ref}:${VERSION} is ${digest}, signed"
+            echo "| \`${ref}:${VERSION}\` | \`${digest}\` |" >> images.md
+          done
+
+      # A chart version already in the registry is attached as it is rather
+      # than pushed again, so a re-run neither moves the tag nor attaches a
+      # chart that differs from the published one.
+      - name: Push the chart
+        id: chart
+        run: |
+          repo="oci://ghcr.io/${OWNER}/charts"
+          echo "$GITHUB_TOKEN_FOR_HELM" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          mkdir -p existing
+          if out=$(helm pull "${repo}/felix-canvas" --version "$VERSION" --destination existing 2>&1); then
+            echo "${repo}/felix-canvas ${VERSION} is already published; attaching that copy"
+            cp "existing/felix-canvas-${VERSION}.tgz" "dist/felix-canvas-${VERSION}.tgz"
+            (cd dist && sha256sum -- *.tgz *.tar.gz > SHA256SUMS)
+          else
+            out=$(helm push "dist/felix-canvas-${VERSION}.tgz" "$repo" 2>&1)
+          fi
+          echo "$out"
+          digest=$(sed -n 's/^Digest: //p' <<< "$out")
+          [ -n "$digest" ] || { echo "::error::no digest for the chart"; exit 1; }
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN_FOR_HELM: ${{ secrets.GITHUB_TOKEN }}
+
+      # By digest, as the images are, so the signature cannot follow a moved tag.
+      - name: Sign the chart
+        env:
+          DIGEST: ${{ steps.chart.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${OWNER}/charts/felix-canvas@${DIGEST}"
+
+      - name: Release notes
+        env:
+          CHART_DIGEST: ${{ steps.chart.outputs.digest }}
+        run: |
+          {
+            echo
+            echo "## Images and chart"
+            echo
+            echo "| Reference | Digest |"
+            echo "|---|---|"
+            cat images.md
+            echo "| \`oci://ghcr.io/${OWNER}/charts/felix-canvas:${VERSION}\` | \`${CHART_DIGEST}\` |"
+            echo
+            echo "All three are signed with cosign; [docs/self-hosting.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/self-hosting.md#what-runs) shows how to verify them."
+          } >> notes.md
+          cat notes.md
+          cat dist/SHA256SUMS
+
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Felix Canvas ${{ env.TAG }}
+          body_path: notes.md
+          prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.build.outputs.prerelease == 'true' && 'false' || 'true' }}
+          files: |
+            dist/felix-canvas-${{ env.VERSION }}.tgz
+            dist/felix-canvas-compose-${{ env.VERSION }}.tar.gz
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
