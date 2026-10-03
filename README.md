@@ -116,7 +116,7 @@ the milestone plan.
 | 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | Done |
 | 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | Done |
 | 8 | Images, a compose install, your own IdP, a Helm chart | Anyone can self-host it | Done |
-| 9 | Rich text in shapes, merged when two people type at once | A CRDT rides the same log: snapshots, rejoin and replay still work | |
+| 9 | Rich text in shapes, merged when two people type at once | A CRDT rides the same log: snapshots, rejoin and replay still work | Done |
 
 Each milestone is tracked as a [GitHub milestone](https://github.com/gabloe/felix-canvas/milestones)
 with an issue per piece of work.
@@ -255,12 +255,18 @@ machine, not Felix's ceiling. The commands are in
 
 | Path | Target | Codespace, one host |
 |---|---|---|
-| Local echo, input to own pixel | < 16 ms | p50 0.5 ms, p99 14.7 ms. Headless Chromium draws without waiting for the display; a 60 Hz screen adds up to one frame |
-| Edit visible to another client | < 50 ms p50, < 150 ms p99 | p50 7.0 ms, p99 21.0 ms |
-| Cursor visible to another client | < 40 ms p50 | p50 8.1 ms |
-| Join a 10,000-change room | < 500 ms to first correct frame | 116 ms |
+| Local echo, input to own pixel | < 16 ms | p50 0.7 ms, p99 24.6 ms. Headless Chromium draws without waiting for the display; a 60 Hz screen adds up to one frame |
+| Edit visible to another client | < 50 ms p50, < 150 ms p99 | p50 6.0 ms, p99 19.0 ms |
+| Keystroke to own character in the editor | < 16 ms | p50 10.9 ms, p99 13.5 ms |
+| Typed text visible to another client | < 250 ms p50, < 400 ms p99 | p50 160 ms, p99 166 ms, from the first keystroke each change carries; 150 ms of that is the editor collecting keystrokes |
+| Text ops per typing person | 7 a second at most | 5.0 a second, typing 10 keys a second for 30 s |
+| Cursor visible to another client | < 40 ms p50 | p50 8.2 ms |
+| Join a 10,000-change room | < 500 ms to first correct frame | 135 ms; 96 ms when half the changes are typing into 50 text boxes |
+| Load a 10,000-change history, half of it typing | < 0.5 ms per change | 1.68 s, 0.17 ms per change, with the debug gateway CI uses |
+| Seek in that history | < 50 ms, slowest seek | 12.4 ms over 24 stops |
+| Lay out a 2,000-character body | < 4 ms | 1.6 to 1.9 ms median |
 | Fanout, 1 to 500 viewers | Publish p50 within 15% | 13.7 ms with 1, 15.2 ms with 500: within 10.9%. Each of the 499 extra viewers received all 900 edits, none dropped |
-| Snapshot lag | < 1,000 changes behind | p50 253, max 498, while a writer adds 300 changes a second |
+| Snapshot lag | < 1,000 changes behind | p50 257, max 500, while a writer adds 300 changes a second |
 | Owning broker killed | Editing resumes, nothing acknowledged is lost | 5 of 5 runs on the three-broker dev stack: every acknowledged edit kept, all editors on one state hash. The longest wait between acknowledged edits was 5.7 to 12.8 s, median 6.0 s, with the dev stack's 3 s liveness window; 130 to 400 edits a run landed twice and were absorbed |
 
 The fanout run alternates 1 viewer and 500 three times, 300 edits each, one
@@ -294,6 +300,27 @@ M8 makes it something you can run. What it proves, in CI:
 - The Helm chart installs on kind next to the Felix chart, its seed Job mints
   the broker credential the Felix chart then starts its brokers with, and two
   browsers draw together through it.
+
+M9 puts rich text in shapes, and a CRDT on the same log. Each body of text is
+a Yjs document whose updates are ops like any other, so the fold, snapshots,
+rejoin and the scrubber cover text with no second path. What it proves, in CI
+against the same images:
+
+- Two browsers type into one box at once, and both editors, both canvases and
+  a browser that joins later end with the same text and the same version.
+- Replicas that apply the same log, in any arrival order and with repeats,
+  derive the same text, and the version covers what the text shows, never how
+  it was typed. Every position of a 3,000-op history with text matches a fresh
+  fold, and so does a snapshot plus the rest of the log.
+- People editing one box see each other's carets stay on their characters
+  while text goes in before them, and someone not editing sees both carets on
+  the canvas.
+- An editor open through a rejoin from the snapshot keeps its caret and its
+  unsent typing.
+- The canvas draws text itself, and breaks a fixed set of bodies into the same
+  lines as the editor does.
+- The history, cold-join and slow-connection tests run with typing in their
+  load, and reach the same version.
 
 ## Repository layout
 

@@ -1,6 +1,6 @@
 import type { FieldValue, ShapeState, ShapeType } from "@felix-canvas/model";
 
-import type { TextLayout } from "./textlayout.js";
+import { BOX_PADDING, type TextLayout } from "./textlayout.js";
 
 /**
  * A shape as the renderer and tools see it. Rectangles and ellipses fill
@@ -200,4 +200,11 @@ export function handleCursor(handle: Handle): string {
     default:
       return "move";
   }
+}
+
+/** Where a shape's text starts: a text box's corner, or inside a box, centred vertically. */
+export function textOrigin(shape: Shape): { x: number; y: number } {
+  if (shape.type === "text" || !shape.text) return { x: shape.x, y: shape.y };
+  const box = bounds(shape);
+  return { x: box.x + BOX_PADDING, y: box.y + (box.h - shape.text.height) / 2 };
 }

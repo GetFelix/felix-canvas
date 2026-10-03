@@ -10,7 +10,8 @@ test("a cold browser joins a busy room from its snapshot and converges", async (
   test.setTimeout(180_000);
   const ana = await join(browser);
 
-  const tail = await busyRoom(10_000, 10);
+  // Half the changes type into 50 text boxes, so the snapshot carries text too.
+  const tail = await busyRoom(10_000, 10, "lobby", { text: true });
   await expect
     .poll(
       async () =>

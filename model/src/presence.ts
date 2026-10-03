@@ -26,6 +26,18 @@ export interface Presence {
    * that has fewer for long has lost its newest changes.
    */
   applied?: number;
+  /** The session's selection in the text it is editing, while it edits. */
+  text?: TextSelection;
+}
+
+/**
+ * A selection in a shape's text, as encoded Yjs relative positions, which
+ * point at characters rather than indexes and so stay put while others type.
+ */
+export interface TextSelection {
+  shape: bigint;
+  anchor: Uint8Array;
+  head: Uint8Array;
 }
 
 /**
@@ -64,6 +76,9 @@ export function encodePresence(presence: Presence): Uint8Array {
     sel: presence.selection.map(u128ToBytes),
     ...(presence.gone ? { gone: true } : {}),
     ...(presence.applied !== undefined ? { at: presence.applied } : {}),
+    ...(presence.text
+      ? { txt: [u128ToBytes(presence.text.shape), presence.text.anchor, presence.text.head] }
+      : {}),
   });
 }
 
@@ -91,7 +106,7 @@ export function decodeMember(bytes: Uint8Array): Member {
  * @throws PresenceDecodeError if the bytes are not a presence message.
  */
 export function decodePresence(bytes: Uint8Array): Presence {
-  const { sid, n, name, color, x, y, sel, gone, at } = decodeMap(bytes);
+  const { sid, n, name, color, x, y, sel, gone, at, txt } = decodeMap(bytes);
   const sidValue = u64(sid, "sid");
   if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > MAX_U32) {
     throw new PresenceDecodeError("n must be a u32");
@@ -112,7 +127,17 @@ export function decodePresence(bytes: Uint8Array): Presence {
     selection: sel.map(bytesToU128),
     ...(gone === true ? { gone: true } : {}),
     ...(Number.isSafeInteger(at) && (at as number) >= 0 ? { applied: at as number } : {}),
+    ...textSelection(txt),
   };
+}
+
+// Ignored rather than refused when malformed, as an older reader would.
+function textSelection(value: unknown): { text?: TextSelection } {
+  if (!Array.isArray(value)) return {};
+  const [shape, anchor, head] = value as unknown[];
+  if (!(shape instanceof Uint8Array) || shape.length !== 16) return {};
+  if (!(anchor instanceof Uint8Array) || !(head instanceof Uint8Array)) return {};
+  return { text: { shape: bytesToU128(shape), anchor, head } };
 }
 
 function decodeMap(bytes: Uint8Array): Record<string, unknown> {

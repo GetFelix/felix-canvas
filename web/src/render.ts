@@ -1,5 +1,6 @@
-import { STROKE_WIDTH, bounds, handles, type Box, type Shape } from "./shapes.js";
-import { BOX_PADDING, drawLayout } from "./textlayout.js";
+import { STROKE_WIDTH, bounds, handles, textOrigin, type Box, type Shape } from "./shapes.js";
+import { FLAG_MS, type PlacedCaret } from "./textcarets.js";
+import { caretAt, drawLayout, selectionBoxes } from "./textlayout.js";
 
 /** Which part of the world the canvas shows: `x, y` at its top-left corner. */
 export interface Camera {
@@ -19,6 +20,8 @@ export interface Palette {
   handle: string;
   /** Text colours by name; `ink` is the colour of text with none. */
   text: Record<string, string>;
+  /** How strongly another person's text selection is tinted. */
+  selectionAlpha: number;
 }
 
 /** Another session's selection, drawn in its colour. */
@@ -26,6 +29,8 @@ export interface PeerSelection {
   name: string;
   color: string;
   shapes: bigint[];
+  /** The shape whose text they are editing, if any. */
+  editing: bigint | null;
 }
 
 export interface Scene {
@@ -39,6 +44,8 @@ export interface Scene {
   handles: boolean;
   /** The shape whose text is open in the editor, which draws it instead. */
   editing: bigint | null;
+  /** Other people's carets in text the canvas draws. */
+  carets: (PlacedCaret & { shape: bigint })[];
 }
 
 const GRID = 24;
@@ -69,10 +76,17 @@ export function render(
   for (const shape of scene.draft ? [...scene.shapes, scene.draft] : scene.shapes) {
     drawShape(ctx, shape, palette);
     if (shape.text && shape.id !== scene.editing) {
-      const inBox = shape.type !== "text";
-      const box = bounds(shape);
-      const x = inBox ? box.x + BOX_PADDING : shape.x;
-      const y = inBox ? box.y + (box.h - shape.text.height) / 2 : shape.y;
+      const { x, y } = textOrigin(shape);
+      ctx.globalAlpha = palette.selectionAlpha;
+      for (const { caret, anchor, head } of scene.carets) {
+        if (caret.shape !== shape.id) continue;
+        if (anchor.block === head.block && anchor.offset === head.offset) continue;
+        ctx.fillStyle = caret.color;
+        for (const box of selectionBoxes(shape.text, anchor, head)) {
+          ctx.fillRect(x + box.x, y + box.y, box.w, box.h);
+        }
+      }
+      ctx.globalAlpha = 1;
       drawLayout(ctx, shape.text, x, y, textColor);
     }
   }
@@ -100,9 +114,12 @@ export function render(
     });
     for (const [i, box] of boxes.entries()) {
       outline(ctx, box, peer.color);
-      if (i === 0) nameTag(ctx, peer.name, peer.color, box.x - 1, box.y - 1);
+      const tag = peer.editing === null ? peer.name : `${peer.name} · editing`;
+      if (i === 0) nameTag(ctx, tag, peer.color, box.x - 1, box.y - 1);
     }
   }
+
+  drawCarets(ctx, scene, byId, camera);
 
   if (scene.draft?.type === "text") outline(ctx, toScreen(bounds(scene.draft)), palette.accent);
 
@@ -236,6 +253,39 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, palette: Palette
   ctx.stroke();
 }
 
+/**
+ * Other people's carets: a 2 px bar a line tall, with their name on a flag
+ * while they type and for a moment after, then a small square cap.
+ */
+function drawCarets(
+  ctx: CanvasRenderingContext2D,
+  scene: Scene,
+  byId: Map<bigint, Shape>,
+  camera: Camera,
+): void {
+  const now = performance.now();
+  for (const { caret, head, shape: id } of scene.carets) {
+    const shape = byId.get(id);
+    if (!shape?.text || id === scene.editing) continue;
+    const at = caretAt(shape.text, head.block, head.offset);
+    if (!at) continue;
+    const origin = textOrigin(shape);
+    const x = Math.round((origin.x + at.x - camera.x) * camera.zoom);
+    const top = (origin.y + at.line.top - camera.y) * camera.zoom;
+    const height = at.line.height * camera.zoom;
+    ctx.fillStyle = caret.color;
+    ctx.fillRect(x - 1, top, 2, height);
+    // The flag shrinks into the cap over 140 ms once it has shown long enough.
+    const shrink = Math.min(1, Math.max(0, (now - caret.movedAt - FLAG_MS) / 140));
+    if (shrink < 1) {
+      ctx.globalAlpha = 1 - shrink;
+      nameTag(ctx, caret.name, caret.color, x - 1, top, 3);
+      ctx.globalAlpha = 1;
+    }
+    if (shrink > 0) ctx.fillRect(x - 1, top - 6 * shrink, 6, 6 * shrink);
+  }
+}
+
 function outline(ctx: CanvasRenderingContext2D, box: Box, color: string): void {
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
@@ -248,13 +298,14 @@ function nameTag(
   color: string,
   x: number,
   y: number,
+  radius = 4,
 ): void {
   ctx.font = TAG_FONT;
   const width = ctx.measureText(name).width + 12;
   const height = 18;
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.roundRect(x, y - height - 2, width, height, 4);
+  ctx.roundRect(x, y - height - 2, width, height, radius);
   ctx.fill();
   ctx.fillStyle = "#fff";
   ctx.textBaseline = "middle";

@@ -495,10 +495,16 @@ the same once-a-frame pacing as the cursor, and left out otherwise.
 
 A viewer resolves the positions against its own copy of the body. When it
 cannot, because the text the caret points into has not reached it yet, it keeps
-the last position until it can. Inside an open editor, carets and selections
-are ProseMirror decorations from a small plugin of our own; `y-prosemirror`'s
-caret plugin expects a `y-protocols` awareness object, which the presence
-stream replaces. On the canvas, the renderer draws them from the body's layout.
+the last position until it can. Inside an open editor, a small plugin of our
+own resolves them when the carets or the body change from outside, and moves
+them through this editor's own typing in between, since while ProseMirror
+applies a keystroke the Yjs document has not caught up yet. The editor draws
+them in a layer over its text, placed with `coordsAtPos`, rather than as
+decorations: changing ProseMirror's DOM puts back a selection it has not read
+yet, so a Home key pressed as someone else's caret moved would be lost.
+`y-prosemirror`'s caret plugin expects a `y-protocols` awareness object, which
+the presence stream replaces. On the canvas, the renderer draws them from the
+body's layout.
 
 ### Gap recovery, access and the snapshotter wait
 
@@ -766,9 +772,10 @@ from the nearest kept state at or below the target, or from the last answer when
 that is closer, and folds forward with the same `apply` the live replica uses.
 A unit test checks every position of a 3,000-op log, scrubbed forwards,
 backwards and in jumps, against a fresh fold to that position, and the
-end-to-end test does the same on a 10,000-change room in a real browser. A
-seek there takes about 2 ms; loading the history takes about 1.3 seconds per
-10,000 changes on a 4-core machine.
+end-to-end test does the same on a 10,000-change room in a real browser, half
+of whose changes type into 50 text boxes. The slowest seek there takes about
+12 ms, most of it decoding the bodies the seek touches, and loading the history
+takes about 1.7 seconds per 10,000 changes on a 4-core machine.
 
 Folding in place matters here. The live fold copies a shape map per op so that
 every state it hands out stays valid; over a whole history that copying cost
