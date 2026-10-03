@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { hashes, join, read, settle } from "./helpers";
+import { hashes, join, leaveAll, read, settle } from "./helpers";
+
+test.afterEach(leaveAll);
 
 type Point = [number, number];
 

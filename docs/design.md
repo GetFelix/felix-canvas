@@ -319,7 +319,7 @@ it occupies. So the presence stream is ephemeral, runs with
 
 - **Coalesce at the client.** Sample pointer moves at render rate and publish at most one position per frame.
 - **Never let presence share a queue with edits.** Separate streams mean separate per-subscriber queues.
-- **Membership lives in the cache, not the stream.** One `cache_get` on a prefix, instead of inferring who is present from a window of cursor traffic.
+- **Membership lives in the cache, not the stream.** One retained watch on the room's key prefix, instead of inferring who is present from a window of cursor traffic. Felix has no prefix `cache_get`, but a retained prefix watch is better: it starts with every current entry and then delivers each change, so the list stays live without polling.
 
 Membership uses TTL as a liveness mechanism: each session writes
 `canvas.presence/<room>:<session>` with a 30-second TTL and refreshes every 10
@@ -328,7 +328,21 @@ which matters, because a browser closing a laptop lid sends no goodbye.
 
 The cost is that a crashed session lingers in the member list for up to 30
 seconds. That is the right trade for a presence indicator and the wrong trade for
-a lock, which is one reason this design has no locks.
+a lock, which is one reason this design has no locks. A tab that closes normally
+deletes its entry on the way out, so only crashes and closed lids wait for the
+TTL.
+
+Felix expires a cache entry lazily: it is absent from the next read, but nothing
+is written when it lapses, so a watch never hears about it
+([felix#960](https://github.com/gabloe/felix/issues/960)). Each change on the
+watch carries its expiry, the gateway relays it as milliseconds remaining, and
+every browser drops an entry whose time has passed. The cache's own TTL still
+decides who appears in a fresh list.
+
+The cursor feed and the member list answer different questions. The member list
+says who is in the room; cursor traffic says who is doing something. A member
+whose cursor has not moved for 10 seconds, or whose tab is in the background and
+sends nothing, shows as away rather than gone.
 
 ## Browser transport
 

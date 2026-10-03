@@ -69,6 +69,9 @@
         <button role="menuitem" id="shortcuts-item">
           <i data-lucide="keyboard"></i><span>Keyboard shortcuts</span><kbd>?</kbd>
         </button>
+        <button role="menuitemcheckbox" id="cursors-item" aria-checked="true">
+          <i data-lucide="mouse-pointer-2"></i><span>Show cursors</span>
+        </button>
         <button role="menuitem" id="hide-ui-item">
           <i data-lucide="eye-off"></i><span>Hide interface</span><kbd>⌘\</kbd>
         </button>
@@ -79,7 +82,13 @@
       </div>
 
       <div class="island presence-island">
-        <div id="avatars" class="avatars"></div>
+        <button
+          id="avatars"
+          class="avatars"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+          aria-controls="people"
+        ></button>
         <button
           id="chip"
           class="chip"
@@ -95,6 +104,29 @@
           <i data-lucide="link"></i><span>Share</span>
         </button>
       </div>
+
+      <section
+        id="people"
+        class="popover people"
+        role="dialog"
+        aria-labelledby="people-title"
+        hidden
+      >
+        <header id="people-title">Just you here</header>
+        <div class="person you">
+          <span id="you-avatar" class="avatar"></span>
+          <input
+            id="you-name"
+            class="person-name"
+            aria-label="Your name"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <span class="person-status">You</span>
+        </div>
+        <ul id="people-list" class="people-list"></ul>
+        <p class="note">Click your name to change it. Everyone here sees it on your cursor.</p>
+      </section>
 
       <section id="status" class="popover status" role="dialog" aria-label="Sync status" hidden>
         <header>
@@ -134,6 +166,10 @@
           <div>
             <dt>Server save</dt>
             <dd id="status-server" class="mono"></dd>
+          </div>
+          <div>
+            <dt>People here</dt>
+            <dd id="status-people" class="mono"></dd>
           </div>
           <div>
             <dt>Canvas version</dt>

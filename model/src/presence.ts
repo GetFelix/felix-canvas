@@ -23,7 +23,18 @@ export interface Presence {
   gone?: boolean;
 }
 
-/** Thrown by {@link decodePresence} when bytes are not a presence message. */
+/**
+ * A session's entry in the room's member list, the cache key
+ * `canvas.presence/<room>:<session>`. It expires unless rewritten, so a
+ * session that vanishes drops out on its own.
+ */
+export interface Member {
+  name: string;
+  /** Index into the eight-colour presence palette. */
+  color: number;
+}
+
+/** Thrown when bytes are not a presence message or member entry. */
 export class PresenceDecodeError extends Error {
   override name = "PresenceDecodeError";
 }
@@ -45,22 +56,31 @@ export function encodePresence(presence: Presence): Uint8Array {
   });
 }
 
+/** Encode a member entry as a MessagePack map. */
+export function encodeMember(member: Member): Uint8Array {
+  return encoder.encode({ name: member.name, color: member.color });
+}
+
+/**
+ * Decode an entry written by {@link encodeMember}.
+ *
+ * @throws PresenceDecodeError if the bytes are not a member entry.
+ */
+export function decodeMember(bytes: Uint8Array): Member {
+  const { name, color } = decodeMap(bytes);
+  if (typeof name !== "string" || typeof color !== "number") {
+    throw new PresenceDecodeError("name and color are required");
+  }
+  return { name, color };
+}
+
 /**
  * Decode a message written by {@link encodePresence}.
  *
  * @throws PresenceDecodeError if the bytes are not a presence message.
  */
 export function decodePresence(bytes: Uint8Array): Presence {
-  let value: unknown;
-  try {
-    value = decoder.decode(bytes);
-  } catch (err) {
-    throw new PresenceDecodeError(`not MessagePack: ${String(err)}`);
-  }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new PresenceDecodeError("presence is a map");
-  }
-  const { sid, n, name, color, x, y, sel, gone } = value as Record<string, unknown>;
+  const { sid, n, name, color, x, y, sel, gone } = decodeMap(bytes);
   const sidValue = typeof sid === "number" && Number.isSafeInteger(sid) ? BigInt(sid) : sid;
   if (typeof sidValue !== "bigint" || sidValue < 0n || sidValue > MAX_U64) {
     throw new PresenceDecodeError("sid must be a u64");
@@ -84,4 +104,17 @@ export function decodePresence(bytes: Uint8Array): Presence {
     selection: sel.map(bytesToU128),
     ...(gone === true ? { gone: true } : {}),
   };
+}
+
+function decodeMap(bytes: Uint8Array): Record<string, unknown> {
+  let value: unknown;
+  try {
+    value = decoder.decode(bytes);
+  } catch (err) {
+    throw new PresenceDecodeError(`not MessagePack: ${String(err)}`);
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new PresenceDecodeError("expected a map");
+  }
+  return value as Record<string, unknown>;
 }

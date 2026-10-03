@@ -32,6 +32,8 @@ export default defineConfig({
       env: {
         CANVAS_FELIX_TOKEN: token("gateway"),
         CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem`,
+        // Short, so a vanished tab drops out within the test's time.
+        CANVAS_MEMBER_TTL_SECONDS: "6",
       },
       timeout: 300_000,
       reuseExistingServer: !process.env.CI,

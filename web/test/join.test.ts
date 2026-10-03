@@ -65,6 +65,8 @@ class FakeGateway implements Gateway {
   onSubscribed: Gateway["onSubscribed"] = () => {};
   onError: Gateway["onError"] = () => {};
   onClose: Gateway["onClose"] = () => {};
+  onMembers: Gateway["onMembers"] = () => {};
+  onMember: Gateway["onMember"] = () => {};
   readonly requests: string[];
   #from: number | null = null;
   #counter = 0;
@@ -117,6 +119,10 @@ class FakeGateway implements Gateway {
     this.room.duringSnapshotRead();
     return this.room.snapshot();
   }
+
+  setMember(): void {}
+  removeMember(): void {}
+  watchMembers(): void {}
 
   close(): void {
     this.#from = null;

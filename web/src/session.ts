@@ -3,15 +3,18 @@ import {
   MAX_U32,
   decodePresence,
   decodeSnapshot,
+  encodeMember,
   encodeOp,
   encodePresence,
   randomSessionId,
   type FieldValue,
+  type Member,
   type OpKind,
   type Presence,
 } from "@felix-canvas/model";
 
 import { GatewayClient, type GatewayEvent } from "./gateway.js";
+import { Members, memberKey } from "./members.js";
 
 /** The part of {@link GatewayClient} a session uses, so tests can stand in for it. */
 export type Gateway = Pick<
@@ -25,6 +28,11 @@ export type Gateway = Pick<
   | "publish"
   | "counterAdd"
   | "snapshot"
+  | "onMembers"
+  | "onMember"
+  | "setMember"
+  | "removeMember"
+  | "watchMembers"
   | "close"
 >;
 import { Replica, type PendingEdit } from "./replica.js";
@@ -75,6 +83,7 @@ export class RoundTrips {
 export class Session {
   readonly sid = randomSessionId();
   readonly replica = new Replica(this.sid);
+  readonly members = new Members();
   /** Publish to own delivery on the op log. */
   readonly editTrips = new RoundTrips();
   /** The same on the presence stream. */
@@ -98,6 +107,8 @@ export class Session {
   onStatusChange: () => void = () => {};
   /** Called for each presence message from another session. */
   onPresence: (presence: Presence) => void = () => {};
+  /** Called when someone joined or left the member list, or changed name or colour. */
+  onMembersChange: () => void = () => {};
 
   readonly #url: string;
   readonly #open: (url: string) => Promise<Gateway>;
@@ -109,6 +120,8 @@ export class Session {
   #resubscribing = false;
   #retries = 0;
   #presenceSent = { n: 0, at: 0 };
+  #member: Member | null = null;
+  #refresh: { worker: Worker; everyMs: number } | null = null;
 
   constructor(url: string, open: (url: string) => Promise<Gateway> = GatewayClient.connect) {
     this.#url = url;
@@ -150,6 +163,41 @@ export class Session {
     void this.#client.publish("presence", encodePresence({ ...presence, sid: this.sid, n }), false);
   }
 
+  /** Join the member list as `member`, or update the entry. It is refreshed until {@link leave}. */
+  setMember(member: Member): void {
+    if (this.#member?.name === member.name && this.#member.color === member.color) return;
+    this.#member = member;
+    this.#writeMember();
+  }
+
+  /** Leave the member list at once, for a tab that is closing. */
+  leave(): void {
+    this.#member = null;
+    this.#client?.removeMember(memberKey(this.sid));
+  }
+
+  /** Drop member entries past their deadline. */
+  expireMembers(now = performance.now()): void {
+    if (this.members.expire(now)) this.onMembersChange();
+  }
+
+  #writeMember(): void {
+    if (this.#client && this.#member) {
+      this.#client.setMember(memberKey(this.sid), encodeMember(this.#member));
+    }
+  }
+
+  #refreshMemberEvery(everyMs: number): void {
+    if (this.#refresh?.everyMs === everyMs) return;
+    this.#refresh?.worker.terminate();
+    // Chrome slows a hidden tab's timers to once a minute, slower than an
+    // entry expires. A worker's timers keep their pace.
+    const source = `setInterval(() => postMessage(0), ${everyMs})`;
+    const worker = new Worker(URL.createObjectURL(new Blob([source], { type: "text/javascript" })));
+    worker.onmessage = () => this.#writeMember();
+    this.#refresh = { worker, everyMs };
+  }
+
   async #connect(): Promise<void> {
     let client: Gateway;
     try {
@@ -159,9 +207,17 @@ export class Session {
       return;
     }
     this.#client = client;
-    client.onHello = (namespace, room) => {
+    client.onHello = (namespace, room, memberTtlMs) => {
       this.room = { namespace, room };
+      this.#refreshMemberEvery(Math.max(1000, Math.floor(memberTtlMs / 3)));
       this.onStatusChange();
+    };
+    client.onMembers = (entries) => {
+      this.members.reset(entries, performance.now());
+      this.onMembersChange();
+    };
+    client.onMember = (entry) => {
+      if (this.members.apply(entry, performance.now())) this.onMembersChange();
     };
     client.onSubscribed = (stream, _start, live) => {
       if (stream !== "ops") return;
@@ -188,6 +244,10 @@ export class Session {
           this.#resubscribing = false;
           this.#subscribeOps(client);
         }, wait);
+      } else if (error.code === "watch_failed") {
+        setTimeout(() => {
+          if (this.#client === client) client.watchMembers();
+        }, 1000);
       }
       console.warn(`gateway: ${error.code}: ${error.message}`);
     };
@@ -201,6 +261,8 @@ export class Session {
 
     this.#subscribeOps(client);
     client.subscribe("presence", "live");
+    client.watchMembers();
+    this.#writeMember();
     // Resend before anything new, so this session's ops keep reaching the
     // log in seq order. The fold's dedupe absorbs any that landed already.
     for (const edit of this.replica.pending) this.#send(edit);
