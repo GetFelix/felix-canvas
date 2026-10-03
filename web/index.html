@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Felix Canvas relay test</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 60rem;
+        padding: 1rem;
+      }
+      form {
+        display: flex;
+        gap: 0.5rem;
+        margin: 0.75rem 0;
+      }
+      input {
+        flex: 1;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+      }
+      th,
+      td {
+        border-bottom: 1px solid #8884;
+        padding: 0.25rem 0.5rem;
+        text-align: left;
+      }
+      .mine {
+        background: #4a90e222;
+      }
+      .problem {
+        color: #d0021b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Felix Canvas relay test</h1>
+    <p id="status">Connecting...</p>
+    <form id="publish">
+      <input id="label" placeholder="A label for a new shape" autocomplete="off" />
+      <button>Publish op</button>
+    </form>
+    <form id="resubscribe">
+      <input id="from" placeholder="Subscribe to ops from an offset, or live" value="live" />
+      <button>Subscribe</button>
+    </form>
+    <p id="last-ack"></p>
+    <table>
+      <thead>
+        <tr>
+          <th>offset</th>
+          <th>session</th>
+          <th>seq</th>
+          <th>kind</th>
+          <th>fields</th>
+        </tr>
+      </thead>
+      <tbody id="events"></tbody>
+    </table>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

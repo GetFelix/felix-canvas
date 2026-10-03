@@ -2,10 +2,11 @@
 
 A multiplayer drawing canvas whose entire backend is [Felix](https://github.com/gabloe/felix).
 Shapes, cursors, presence, history and snapshots all live in Felix streams and
-caches — no Postgres, no Redis, no Kafka beside it.
+caches, with no Postgres, Redis or Kafka beside it.
 
-**Status: design complete.** This repository holds the design. Code lands as the
-milestones below are built.
+**Status: M0 done.** A browser reaches Felix through the WebSocket gateway:
+two tabs publish to one room's durable op stream and see each other's records
+in the same offset order. The canvas itself starts at M1.
 
 ## Why it exists
 
@@ -15,12 +16,12 @@ subscribers, but those are rows in a table until something uses them.
 
 Felix Canvas is the application that makes them visible:
 
-- **Fanout** — one publish is encoded once and shared with every viewer. Felix
+- **Fanout.** One publish is encoded once and shared with every viewer. Felix
   delivers over a million messages a second to 500 subscribers on one broker
   with nothing dropped, and the publisher's acknowledgement holds flat at 206 µs.
-- **Isolation** — a deliberately throttled client loses frames loudly and
+- **Isolation.** A deliberately throttled client loses frames loudly and
   rebuilds from its last offset, while everyone else is undisturbed.
-- **Replay** — the log *is* the document, so you can scrub a room backwards
+- **Replay.** The log *is* the document, so you can scrub a room backwards
   through its own history. No server-side session state to replay from.
 
 ## How these are normally built
@@ -28,14 +29,14 @@ Felix Canvas is the application that makes them visible:
 A realtime canvas is normally four systems: a WebSocket tier with sticky sessions
 so a room's clients reach the process holding it, Redis pub/sub to fan out when
 they do not, Postgres for the document of record, and Kafka added later when
-history turns out to matter. That stack works — most collaborative software you
-have used is built from it — but the order of truth is split across all four, and
+history turns out to matter. That stack works, and most collaborative software you
+have used is built from it, but the order of truth is split across all four, and
 Redis pub/sub carries no offsets, so a client that misses an update has no way to
 learn that it did. Reloading the page is collaborative software's universal
 repair for exactly that reason.
 
-Felix Canvas keeps the merge rule those systems already use — last-writer-wins
-per shape field, the same rule as Figma — and changes only what sits underneath.
+Felix Canvas keeps the merge rule those systems already use (last-writer-wins
+per shape field, the same rule as Figma) and changes only what sits underneath.
 One log per room does the live fanout *and* the history, so catch-up and replay
 are the same call, and a missed update is a gap in offsets rather than a wrong
 picture nobody notices.
@@ -62,7 +63,7 @@ ago is worthless. The edit stream is durable; the presence stream runs in memory
 with a drop-new overflow policy.
 
 Room state is a pure fold over the op stream, so two clients that have applied
-the same prefix hold the same canvas — which is checkable with a hash rather
+the same prefix hold the same canvas, which is checkable with a hash rather
 than by eye.
 
 See [docs/design.md](docs/design.md) for the full design: join and snapshot
@@ -71,19 +72,88 @@ the milestone plan.
 
 ## Build order
 
-| M | Milestone | Proves |
-|---|---|---|
-| 0 | WebSocket gateway relaying publish/subscribe | A browser can reach Felix at all |
-| 1 | Two browsers, shapes, offset-ordered apply | The log is the document |
-| 2 | Snapshotter and the join path | A cold client joins a busy room correctly |
-| 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real |
-| 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin |
-| 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway |
-| 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker |
-| 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover |
+| M | Milestone | Proves | Status |
+|---|---|---|---|
+| 0 | WebSocket gateway relaying publish/subscribe | A browser can reach Felix at all | Done |
+| 1 | Two browsers, shapes, offset-ordered apply | The log is the document | |
+| 2 | Snapshotter and the join path | A cold client joins a busy room correctly | |
+| 3 | Presence, cursors, TTL membership | The ephemeral/durable split is real | |
+| 4 | Slow-client lane and offset-gap recovery | Isolation and correct rejoin | |
+| 5 | Time scrubber over the op log | Replay, with no state hiding in the gateway | |
+| 6 | Per-room token narrowing against a real IdP | Multi-tenancy enforced by the broker | |
+| 7 | 500-viewer stress; kill the owning broker | Flat fanout and survival of failover | |
 
 M0 comes first because Felix is QUIC end to end, and the gateway is what brings
-a browser onto that path.
+a browser onto that path. What it proves, as tested in CI against the published
+Felix images:
+
+- Two WebSocket sessions publish to `canvas.ops.lobby` and both receive all ten
+  records in one order, with increasing log offsets, each session's own records
+  in the order it sent them.
+- An ack carries the same offset the record is delivered at, and subscribing
+  from an offset replays the log from there.
+- The presence stream relays without offsets, fire-and-forget.
+- The gateway reports its browser leg and its Felix leg as separate latency
+  histograms.
+
+## Repository layout
+
+| Path | What |
+|---|---|
+| `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes |
+| `model/` | The op schema and its MessagePack encoding, shared by the browser and the future snapshotter |
+| `web/` | The browser client. For M0, a test page that publishes ops and lists what the log delivers |
+| `dev/` | Felix for local runs and CI: Docker Compose over the published images, a stand-in IdP, and a seed script |
+| `docs/protocol.md` | The browser to gateway protocol |
+
+## Running locally
+
+You need Docker, Rust (the toolchain in `rust-toolchain.toml` installs itself),
+and Node 24.
+
+1. Start Felix. This pulls `ghcr.io/gabloe/felix-broker` and
+   `felix-controlplane` at `0.6.0-preview`, creates the `lobby` room's streams,
+   and writes the gateway's token and the broker's certificate to `dev/state/`:
+
+   ```bash
+   dev/up.sh
+   ```
+
+   Each run starts from an empty log. `docker compose -f dev/docker-compose.yml down -v`
+   stops it.
+
+2. Start the gateway, which listens on `127.0.0.1:8787`:
+
+   ```bash
+   export CANVAS_FELIX_TOKEN="$(cat dev/state/gateway.token)"
+   export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem
+   cargo run -p felix-canvas-gateway
+   ```
+
+3. Start the page, which proxies `/ws` to the gateway:
+
+   ```bash
+   npm install
+   npm run build -w @felix-canvas/model
+   npm run dev -w @felix-canvas/web
+   ```
+
+4. Open <http://localhost:5173> in two tabs. Type a label in one and press
+   **Publish op**: the op appears in both tabs at the same offset, marked `you`
+   in the tab that sent it. Enter an offset under **Subscribe** to replay the
+   log from there.
+
+`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variables
+from step 2 exported, the integration tests run against the same stack:
+
+```bash
+cargo test -- --include-ignored
+```
+
+The gateway reads `CANVAS_LISTEN`, `CANVAS_FELIX_BROKERS`,
+`CANVAS_FELIX_SERVER_NAME`, `CANVAS_FELIX_CA_FILE`, `CANVAS_FELIX_TOKEN`,
+`CANVAS_TENANT`, `CANVAS_NAMESPACE` and `CANVAS_ROOM`; see
+[`gateway/src/config.rs`](gateway/src/config.rs) for their defaults.
 
 ## License
 
