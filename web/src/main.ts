@@ -2,15 +2,17 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
-import { EMPTY_DOC, inZOrder, stateHash, type Doc } from "@felix-canvas/model";
+import { EMPTY_DOC, applyInPlace, draft, inZOrder, stateHash, type Doc } from "@felix-canvas/model";
 
 import { displayName, signIn, signOut, signedIn, type OidcConfig } from "./auth.js";
 import { Chrome, showAccess } from "./chrome.js";
 import { Coalescer } from "./coalesce.js";
 import { Editor } from "./editor.js";
+import { HistoryFeed } from "./history.js";
 import { assignColor } from "./members.js";
 import { Peers, ownName, ownPersonId, saveName } from "./peers.js";
 import { render, type Palette } from "./render.js";
+import { Scrubber } from "./scrubber.js";
 import { Session } from "./session.js";
 import { readShape, type Shape } from "./shapes.js";
 
@@ -66,12 +68,13 @@ token ??= await signIn(oidc);
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 const session = new Session(gatewayUrl(), { room, token });
+const scrubber = new Scrubber(new HistoryFeed(gatewayUrl(), { room, token }));
 let name = ownName();
 const person = ownPersonId();
 
 let shapesOf: { doc: Doc; shapes: Shape[] } = { doc: EMPTY_DOC, shapes: [] };
 function shapes(): Shape[] {
-  const doc = session.replica.view();
+  const doc = scrubber.doc ?? session.replica.view();
   if (shapesOf.doc !== doc) {
     shapesOf = { doc, shapes: inZOrder(doc).map(([id, state]) => readShape(id, state)) };
   }
@@ -139,6 +142,11 @@ chrome.onRename = (newName) => {
   saveName(name);
   membersChanged();
 };
+scrubber.onChange = () => (dirty = true);
+scrubber.onToggle = (active) => {
+  editor.setReadOnly(active);
+  dirty = true;
+};
 editor.onRefused = () => chrome.toast("Offline for too long: reconnect to keep editing");
 chrome.onThemeChange = () => {
   palette = readPalette();
@@ -171,10 +179,12 @@ function frame(now: number): void {
       draft: editor.draft,
       marquee: editor.marquee,
       handles: !editor.dragging,
-      peers: peers
-        .list()
-        .filter((peer) => peer.selection.length > 0)
-        .map((peer) => ({ name: peer.name, color: peer.color, shapes: peer.selection })),
+      peers: scrubber.active
+        ? []
+        : peers
+            .list()
+            .filter((peer) => peer.selection.length > 0)
+            .map((peer) => ({ name: peer.name, color: peer.color, shapes: peer.selection })),
     });
     dirty = false;
     if (firstFrameMs === null && session.hasFrame) firstFrameMs = now - joinStartedAt;
@@ -183,7 +193,8 @@ function frame(now: number): void {
     session.publishPresence({
       name,
       color: ownColor(),
-      cursor: editor.pointer,
+      // A pointer over an old picture would mislead whoever sees it.
+      cursor: scrubber.active ? null : editor.pointer,
       selection: [...editor.selection],
     });
   }
@@ -211,6 +222,24 @@ Object.assign(window, {
     snapshotOffset: () => session.snapshotOffset,
     fellBehind: () => session.fellBehind,
     saveTimes: (count: number) => session.editTrips.latest(count),
+    history: {
+      ready: () => scrubber.ready,
+      position: () => scrubber.position,
+      start: () => scrubber.history?.start ?? 0,
+      end: () => scrubber.history?.end ?? 0,
+      hash: () => stateHash(scrubber.doc ?? EMPTY_DOC),
+      slowestSeekMs: () => scrubber.slowestSeekMs,
+      // Folds the held records from the start, without the kept states a seek uses.
+      freshHash: (position: number) => {
+        const history = scrubber.history!;
+        const doc = draft(history.base);
+        for (let offset = history.start; offset < position; offset++) {
+          const op = history.op(offset);
+          if (op) applyInPlace(doc, op, offset);
+        }
+        return stateHash(doc);
+      },
+    },
   },
 });
 

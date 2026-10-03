@@ -119,7 +119,7 @@ structure and one order.
 - **One room is one shard is one owning broker**, the same single-owner constraint as a per-document server process. The difference is that failover is machinery Felix already has rather than something this application invents.
 - **Delivery is at-least-once**, so clients must dedupe; a CRDT stack gets idempotence from the merge function for free.
 - **Offline editing for weeks is out.** CRDTs win that outright, and this design does not compete for it.
-- **Replay is bounded by retention.** A history that must reach back further needs checkpoints the log alone does not provide.
+- **Replay is bounded by retention.** A history that must reach back further than the log needs checkpoints the log alone does not provide (see How far back the scrubber reaches).
 
 ## Architecture
 
@@ -173,7 +173,7 @@ segment names a room.
 
 | What | Felix primitive | Name | Durability |
 |---|---|---|---|
-| Edit operations | Durable stream | `canvas.ops.<room>` | Log-backed, retained 30 days |
+| Edit operations | Durable stream | `canvas.ops.<room>` | Log-backed, kept until broker-wide retention trims it |
 | Cursors and presence | Ephemeral stream | `canvas.presence.<room>` | None, at-most-once by design |
 | Compacted snapshot | Cache key | `canvas.snap.<room>` / `latest` | Log-backed, survives restart |
 | Snapshot's log position | Same cache value | stored inside the snapshot record | Written atomically with the snapshot |
@@ -235,6 +235,7 @@ Op shape, MessagePack-encoded, roughly 60–120 bytes for a typical move:
 | `shape` | u128 | Target shape id, client-generated |
 | `kind` | enum | `create` / `patch` / `delete` |
 | `fields` | map | Only the changed fields |
+| `t` | u64, optional | When the author made the edit, for the history timeline only |
 
 Echo suppression matters more than it looks. A client applies its own op
 optimistically, then sees it again from the broker. The client keeps its
@@ -431,6 +432,84 @@ broker's unit of authorization, so it would have to be enforced in the gateway,
 and gateway-enforced rules are exactly the kind of claim this project should not
 make.
 
+## History and the time scrubber
+
+History mode turns the tool bar into a timeline over every change in the room,
+and the canvas shows the room as it was at the playhead. Dragging back and
+forth, stepping one change at a time or playing it forwards all ask the same
+question: what does a fold of the log up to this change look like?
+
+```mermaid
+sequenceDiagram
+    participant H as History reader
+    participant G as Gateway
+    participant B as Broker
+    H->>G: second connection, join(room, ID token)
+    H->>G: subscribe(ops, 0)
+    G->>B: subscribe_from(canvas.ops.room, 0)
+    B-->>H: subscribed, live tail L
+    B-->>H: ops 0 .. L-1, then new ones
+    Note over H: fold each op once, keep a state every 256
+    Note over H: a seek folds at most 255 ops from the kept state below it
+```
+
+**Nothing is kept on the server.** The browser reads the history over a second
+gateway connection, narrowed to the room exactly as the first one is, by
+subscribing to the op log from offset 0. The gateway relays it like any other
+subscription and the broker reads it from the log. Leaving history mode closes
+that connection, and coming back subscribes again from the last offset the
+browser already holds. The live session never pauses: it keeps its own
+subscription, so returning to live shows everything that happened meanwhile,
+and its gap detection never sees the history read.
+
+**Every position is a fold of the log.** `History` in `model/` folds each op
+once as it arrives and keeps the room's state every 256 changes. A seek starts
+from the nearest kept state at or below the target, or from the last answer when
+that is closer, and folds forward with the same `apply` the live replica uses.
+A unit test checks every position of a 3,000-op log, scrubbed forwards,
+backwards and in jumps, against a fresh fold to that position, and the
+end-to-end test does the same on a 10,000-change room in a real browser. A
+seek there takes about 2 ms; loading the history takes about 1.3 seconds per
+10,000 changes on a 4-core machine.
+
+Folding in place matters here. The live fold copies a shape map per op so that
+every state it hands out stays valid; over a whole history that copying cost
+3.6 seconds for 10,000 ops on 300 shapes. History folds into one working
+state and copies only at kept states and answers.
+
+**Times come from the ops.** Felix stores a write time with every record but
+does not deliver it, so each op carries `t`, the time its author made it by the
+author's own clock. The timeline is laid out by change number, so a wrong
+clock can mislabel a change but never reorder one. Ops written before this
+field show no time.
+
+### How far back the scrubber reaches
+
+The scrubber reaches as far back as the room's log does, and no further. There
+are no checkpoint snapshots.
+
+That is decided against what Felix does today, not what this design once
+assumed. Felix keeps a durable log forever unless the broker sets
+`FELIX_DURABLE_RETENTION_BYTES` or `FELIX_DURABLE_RETENTION_SECONDS`, and those
+apply to every stream on the broker. A retention policy set on one stream in the
+control plane is stored and ignored
+([felix#964](https://github.com/gabloe/felix/issues/964)), so the 30-day window
+the data model once named is not something a deployment can actually set per
+room. With the defaults, history reaches every room's first change.
+
+When a broker-wide limit has trimmed the start of the log, the subscription
+from 0 is refused as `trimmed`. History then starts from the room's snapshot,
+the oldest state the log can still rebuild, and reads on from the offset after
+it. The timeline marks the missing part with a hatched stub labelled "History
+starts at change N".
+
+Checkpoints were the alternative: the snapshotter keeping a snapshot every
+so many changes under its own key. They are not worth it yet. They would be a
+second copy of history kept in a cache, growing without bound, with its own
+retention to decide. Whoever sets a broker-wide limit has already chosen to
+keep less history. Checkpoints become worth it when per-stream retention
+works and a deployment wants short op retention with long history.
+
 ## Failure modes
 
 | Failure | What Felix does | What the client does | What the user sees |
@@ -545,7 +624,7 @@ is the milestone order: everything that proves something about Felix lands by M4
 - Frontend scope creep, as above. A cap: no feature that does not appear in one of the five demonstrations.
 - LWW is wrong for text. If shape labels grow into real text editing, this design needs a different conflict model.
 - The gateway quietly becoming stateful. Treat state in the gateway as a design defect, not an optimization.
-- Retention versus replay. A 30-day window bounds how far the scrubber can go.
+- Retention versus replay. Whatever the broker keeps bounds how far the scrubber can go.
 
 **What this project would contribute upstream to Felix:**
 
@@ -557,5 +636,5 @@ is the milestone order: everything that proves something about Felix lands by M4
 **Open questions**
 
 - [x] Does room membership live in cache keys, or in a small external store? Neither: in Felix RBAC, one role per room (see Authorization).
-- [ ] Is the scrubber bounded by retention, or does M5 also write periodic checkpoint snapshots to reach further back?
+- [x] Is the scrubber bounded by retention, or does it also need periodic checkpoint snapshots to reach further back? Bounded by retention, which Felix leaves off by default (see How far back the scrubber reaches).
 - [ ] One gateway process per region, or one per room owner to keep the QUIC path shortest?

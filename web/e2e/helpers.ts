@@ -10,6 +10,15 @@ interface Replica {
   snapshotOffset(): number | null;
   fellBehind(): number;
   saveTimes(count: number): number[];
+  history: {
+    ready(): boolean;
+    position(): number;
+    start(): number;
+    end(): number;
+    hash(): string;
+    slowestSeekMs(): number;
+    freshHash(position: number): string;
+  };
 }
 
 declare global {
@@ -108,15 +117,15 @@ export class Writer {
     });
   }
 
-  /** Join the lobby as ana, with an ID token straight from the development IdP. */
-  static async open(): Promise<Writer> {
+  /** Join `room` as ana, with an ID token straight from the development IdP. */
+  static async open(room = "lobby"): Promise<Writer> {
     const response = await fetch(`${IDP}/token?sub=ana&aud=felix-canvas`);
     const { id_token: token } = (await response.json()) as { id_token: string };
     const socket = new WebSocket(GATEWAY);
     return new Promise((resolve, reject) => {
       socket.addEventListener(
         "open",
-        () => socket.send(JSON.stringify({ type: "join", room: "lobby", token })),
+        () => socket.send(JSON.stringify({ type: "join", room, token })),
         { once: true },
       );
       socket.addEventListener(
@@ -135,7 +144,8 @@ export class Writer {
   /** Publish an op and resolve with its log offset. */
   publish(shape: bigint, kind: Op["kind"], fields: Op["fields"]): Promise<number> {
     const id = this.#id++;
-    const payload = encodeOp({ sid: this.sid, seq: this.#seq++, shape, kind, fields });
+    const op = { sid: this.sid, seq: this.#seq++, shape, kind, fields, at: Date.now() };
+    const payload = encodeOp(op);
     this.#socket.send(
       JSON.stringify({
         type: "publish",
@@ -151,4 +161,30 @@ export class Writer {
   close(): void {
     this.#socket.close();
   }
+}
+
+/**
+ * Fill `room` with `count` ops from `sessions` writers: each creates a few
+ * shapes well away from where the other tests draw, then moves them.
+ * Resolves with the last offset written.
+ */
+export async function busyRoom(count: number, sessions: number, room = "lobby"): Promise<number> {
+  const writers = await Promise.all(Array.from({ length: sessions }, () => Writer.open(room)));
+  const offsets = await Promise.all(
+    writers.map((writer, w) => {
+      const shapes = Array.from({ length: 30 }, (_, i) => BigInt(w * 1000 + i + 1) << 64n);
+      return Promise.all(
+        Array.from({ length: count / sessions }, (_, i) => {
+          const shape = shapes[i % shapes.length]!;
+          const x = 2000 + (i % 30) * 60 + w * 8;
+          const y = 2000 + w * 120 + (i % 7);
+          return i < shapes.length
+            ? writer.publish(shape, "create", { type: "rect", x, y, w: 40, h: 30, z: "V" })
+            : writer.publish(shape, "patch", { x, y });
+        }),
+      );
+    }),
+  );
+  for (const writer of writers) writer.close();
+  return Math.max(...offsets.flat());
 }

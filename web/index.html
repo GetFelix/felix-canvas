@@ -250,6 +250,54 @@
         </button>
       </nav>
 
+      <div class="island history-island">
+        <button id="history-button" data-tip="History" data-key="⌘⇧H" aria-label="History">
+          <i data-history-icon="history"></i>
+        </button>
+      </div>
+
+      <section id="history-bar" class="island history-bar" aria-label="History" hidden>
+        <button id="history-play" data-tip="Play" data-key="Space" aria-label="Play">
+          <i data-history-icon="play" class="when-paused"></i>
+          <i data-history-icon="pause" class="when-playing"></i>
+        </button>
+        <button id="history-speed" class="history-speed mono" data-tip="Playback speed">1×</button>
+        <div class="history-main">
+          <div class="history-readout">
+            <span id="history-change" class="mono">Loading history</span>
+            <span id="history-when" class="history-when"></span>
+          </div>
+          <div
+            id="history-track"
+            class="history-track"
+            role="slider"
+            tabindex="0"
+            aria-label="Position in history"
+            aria-valuemin="0"
+            aria-valuemax="0"
+            aria-valuenow="0"
+          >
+            <div id="history-floor" class="history-floor" hidden></div>
+            <div id="history-scale" class="history-scale">
+              <svg
+                id="history-density"
+                class="history-density"
+                viewBox="0 0 120 16"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              ></svg>
+              <div class="history-rail"><div id="history-fill" class="history-fill"></div></div>
+              <div id="history-playhead" class="history-playhead"></div>
+            </div>
+          </div>
+        </div>
+        <button id="history-live" class="history-live" data-tip="Back to live" data-key="L">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span>Back to live</span>
+          <span id="history-new" class="history-new mono" hidden></span>
+        </button>
+      </section>
+
       <div class="island zoom-island">
         <button id="zoom-out" data-tip="Zoom out" data-key="⌘ −" aria-label="Zoom out">
           <i data-lucide="minus"></i>
@@ -329,6 +377,24 @@
             <div>
               <dt>Hide interface</dt>
               <dd><kbd>⌘\</kbd></dd>
+            </div>
+          </dl>
+          <dl>
+            <div>
+              <dt>History</dt>
+              <dd><kbd>⌘</kbd><kbd>⇧</kbd><kbd>H</kbd></dd>
+            </div>
+            <div>
+              <dt>Step one change, 100 changes</dt>
+              <dd><kbd>←</kbd> <kbd>⇧←</kbd></dd>
+            </div>
+            <div>
+              <dt>Play, pause</dt>
+              <dd><kbd>Space</kbd></dd>
+            </div>
+            <div>
+              <dt>Back to live</dt>
+              <dd><kbd>L</kbd> or <kbd>Esc</kbd></dd>
             </div>
           </dl>
         </div>
