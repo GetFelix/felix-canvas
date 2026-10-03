@@ -42,9 +42,19 @@ a Codespace.
 
 `dev/up.sh` starts the broker and control plane from
 `ghcr.io/gabloe/felix-broker` and `felix-controlplane` at the version pinned in
-`dev/docker-compose.yml`, creates the room's streams, and writes the gateway's
-token and the broker's certificate to `dev/state/`. Every run starts from an empty
-log.
+`dev/docker-compose.yml`, creates the room's streams and the `canvas.seq` and
+`canvas.snap` caches, and writes the gateway's and the snapshotter's tokens and
+the broker's certificate to `dev/state/`. Every run starts from an empty log.
+
+The snapshotter reads the same `CANVAS_*` variables as the gateway, with its own
+token, plus four of its own:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CANVAS_SNAPSHOTTER_LISTEN` | `127.0.0.1:8788` | Where it answers `GET /` with `{"room", "applied", "saved"}`: the last offset folded and the last one a stored snapshot holds |
+| `CANVAS_SNAPSHOT_EVERY_OPS` | `500` | Write a snapshot once this many records are folded but not saved |
+| `CANVAS_SNAPSHOT_EVERY_MS` | `30000` | Or once the oldest of them has waited this long |
+| `CANVAS_SNAPSHOTTER_CLAIM_WAIT_MS` | `30000` | How long it waits after starting before it reads, so records an earlier run claimed come back first. Match the broker's `FELIX_GROUP_VISIBILITY_TIMEOUT_MS` |
 
 Three settings there exist only because of Felix gaps, each filed upstream:
 
@@ -60,8 +70,8 @@ Three settings there exist only because of Felix gaps, each filed upstream:
 |---|---|
 | Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
 | Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it |
-| TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests |
-| Two browsers against Felix | Starts the dev stack, the gateway and the page, and runs the Playwright test in `web/e2e/` |
+| TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
+| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, and a cold browser joining a 10,000-op room |
 
 ## Milestones and issues
 

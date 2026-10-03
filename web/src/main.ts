@@ -43,6 +43,9 @@ let palette = readPalette();
 let dirty = true;
 let presenceDirty = true;
 let presenceSentAt = 0;
+let joinStartedAt = 0;
+/** Milliseconds from starting to join until the first correct frame was drawn. */
+let firstFrameMs: number | null = null;
 
 function readPalette(): Palette {
   const style = getComputedStyle(document.documentElement);
@@ -118,6 +121,7 @@ function frame(now: number): void {
         .map((peer) => ({ name: peer.name, color: peer.color, shapes: peer.selection })),
     });
     dirty = false;
+    if (firstFrameMs === null && session.hasFrame) firstFrameMs = now - joinStartedAt;
   }
   // At most one presence message a frame, and a heartbeat when idle.
   if ((presenceDirty && now - presenceSentAt >= 16) || now - presenceSentAt > HEARTBEAT_MS) {
@@ -144,10 +148,13 @@ Object.assign(window, {
     applied: () => session.replica.next,
     pending: () => session.replica.pending.length,
     shapes: () => shapes().length,
+    firstFrameMs: () => firstFrameMs,
+    snapshotOffset: () => session.snapshotOffset,
   },
 });
 
 editor.centre(0, 0);
 chrome.setPeers([], ownColor());
+joinStartedAt = performance.now();
 session.start();
 requestAnimationFrame(frame);

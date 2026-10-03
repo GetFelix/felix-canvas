@@ -103,6 +103,27 @@ export class Replica {
   deliver(offset: number, skippedBefore: number, payload: Uint8Array): PendingEdit[] {
     if (offset < this.#next || this.#ahead.has(offset)) return [];
     this.#ahead.set(offset, { skippedBefore, payload });
+    return this.#drain();
+  }
+
+  /**
+   * Replace the confirmed state with `doc`, a snapshot of the log below
+   * `next`, and continue from there. Buffered records past it still apply.
+   * Returns the pending edits the snapshot already holds, now confirmed, and
+   * any that buffered records confirm.
+   */
+  reset(doc: Doc, next: number): PendingEdit[] {
+    this.#confirmed = doc;
+    this.#next = next;
+    this.#view = undefined;
+    for (const at of this.#ahead.keys()) if (at < next) this.#ahead.delete(at);
+    const seq = doc.seqs.get(this.sid) ?? -1;
+    const held = this.#pending.filter((edit) => edit.op.seq <= seq);
+    this.#pending.splice(0, held.length);
+    return [...held, ...this.#drain()];
+  }
+
+  #drain(): PendingEdit[] {
     const confirmed: PendingEdit[] = [];
     while (this.#ahead.size > 0) {
       const at = Math.min(...this.#ahead.keys());

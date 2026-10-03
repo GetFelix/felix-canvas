@@ -250,13 +250,14 @@ because every write that reached the log before it had a lower offset.
 sequenceDiagram
     participant C as Client
     participant B as Broker
-    C->>B: subscribe_from(ops, offset=live)
-    B-->>C: subscription open, buffering
-    C->>B: cache_get(snap, room)
-    B-->>C: snapshot + built_at offset N
-    C->>B: subscribe_from(ops, offset=N+1)
+    C->>B: subscribe_from(ops, Latest)
+    B-->>C: registered at tail L, buffering
+    C->>B: cache_get(canvas.snap, room)
+    B-->>C: snapshot built through offset N
+    Note over C: draw the snapshot, drop buffered ops at or below N
+    C->>B: subscribe_from(ops, N+1), only if N+1 < L
     B-->>C: ops N+1 .. live
-    Note over C: apply snapshot, then ops in offset order
+    Note over C: apply ops in offset order
 ```
 
 The rule is **subscribe before you read**. Registering the live subscription
@@ -265,9 +266,19 @@ client; reading the snapshot first would lose exactly those ops. This is not
 hypothetical: it is the same ordering defect Felix's own broker was written to
 avoid, and it reappears in every application built on top.
 
-The practical form is simpler than the diagram suggests: open the subscription at
-the live tail, fetch the snapshot, then discard buffered ops at or below the
-snapshot's offset and apply the rest.
+The live subscription is opened with `StartPosition::Latest` rather than with no
+position, because only then does the broker report the tail `L` it registered
+at. The client applies the snapshot, keeps buffered ops above `N`, and when the
+snapshot stops short of `L` reads the ops in between with a second subscription
+from `N + 1`. When the snapshotter is caught up, `N + 1 = L` and the second read
+never happens. A room with no snapshot yet is the case `N = -1`: the client reads
+the whole log.
+
+The client draws the snapshot as soon as it decodes and applies the remaining
+ops on top, so a cold join shows a correct, slightly old frame first rather than
+an empty canvas. In the cold-join test a browser joining a 10,000-op room while
+another session edits draws that frame in well under the 500 ms target and ends
+with the same state hash as a browser that saw every op live.
 
 **Snapshot production.** The snapshotter reads `canvas.ops.<room>` through a
 consumer group, folds ops into its replica, and every 500 ops or 30 seconds
@@ -275,6 +286,24 @@ writes the serialized state plus the last applied offset to the cache. It acks
 only after the `cache_put` returns, so a crash redelivers the window rather than
 losing it. Rewriting the same key is idempotent, which makes at-least-once
 redelivery harmless here.
+
+The value is one MessagePack record: the shapes with the offset that last wrote
+each field, the highest applied `seq` per session, and the offset `N` it was
+built through. The seqs travel with the shapes so that a retried op landing
+after the snapshot is still recognised as a repeat. The snapshotter starts from
+the stored snapshot, folds records in offset order and skips any at or below
+the last one it folded, which is what a redelivery always is.
+
+A record handed to a snapshotter that then died stays claimed until the
+broker's visibility timeout lapses, and the group hands newer records out in
+the meantime. A starting snapshotter therefore waits out that timeout before
+it reads, so the old claims come back first and the fold stays in offset order.
+
+One snapshotter runs per room. A group splits records between its members, and
+a member that saw only some of a room's ops would write a wrong snapshot, so a
+second member would have to stand by rather than poll. Each record is held for
+at most one snapshot interval before it is acknowledged, which stays inside the
+broker's 30-second visibility timeout and its five-attempt dead-letter bound.
 
 **Why not ask a peer for state.** Peer-to-peer state transfer would make
 correctness depend on which client answered, and that client's own replica might
@@ -361,10 +390,10 @@ make.
 |---|---|---|---|
 | Slow viewer | Fills that subscriber's bounded queue, drops per policy, others untouched | Detects an offset gap, re-joins from its last applied offset | A brief "catching up" state, then correct canvas |
 | Viewer offline briefly | Retains the log; the subscription ends | Reconnect, `subscribe_from(last_offset + 1)` | Nothing, if under a few seconds |
-| Offline past retention | Answers a read below the trim point with `Trimmed` and the oldest surviving offset | Discards its replica, re-joins from snapshot | A reload-shaped pause |
+| Offline past retention | Answers a read below the trim point with `CursorTooOld` and the oldest surviving offset | Discards its replica, keeps its unsent edits, re-joins from the snapshot | The canvas dims under "Rebuilding" while the recent changes load |
 | Owning broker lost | Reassigns the shard; a caught-up replica is promoted | Reconnect; unacked ops retry | A stall of roughly the failover window |
 | Publish unacked at failover | May have committed or not | Retries with the same `(sid, seq)`; dedupe absorbs the double | Nothing |
-| Snapshotter dies | Redelivers its window to another group member | Unaffected; joins replay further from the log | Slightly slower joins |
+| Snapshotter dies | Redelivers what it had not acknowledged once it restarts | Unaffected; joins replay further from the log | Slightly slower joins |
 | Cache watch falls behind | Ends the watch with `Lagged { resume_from }` | Re-watch from the named offset | Nothing |
 
 **Every recovery path is the join path.** A client that has fallen behind, been

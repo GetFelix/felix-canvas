@@ -1,35 +1,8 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-interface Replica {
-  hash(): string;
-  applied(): number;
-  pending(): number;
-  shapes(): number;
-}
-
-declare global {
-  interface Window {
-    felixCanvas: Replica;
-  }
-}
+import { hashes, join, read, settle } from "./helpers";
 
 type Point = [number, number];
-
-async function join(browser: Browser): Promise<Page> {
-  const page = await (await browser.newContext()).newPage();
-  await page.goto("/");
-  await expect(page.locator("#joining")).toBeHidden({ timeout: 30_000 });
-  return page;
-}
-
-function read(page: Page) {
-  return page.evaluate(() => ({
-    hash: window.felixCanvas.hash(),
-    applied: window.felixCanvas.applied(),
-    pending: window.felixCanvas.pending(),
-    shapes: window.felixCanvas.shapes(),
-  }));
-}
 
 async function draw(page: Page, tool: string, from: Point, to: Point): Promise<void> {
   await page.keyboard.press(tool);
@@ -37,23 +10,6 @@ async function draw(page: Page, tool: string, from: Point, to: Point): Promise<v
   await page.mouse.down();
   await page.mouse.move(...to, { steps: 12 });
   await page.mouse.up();
-}
-
-/** Wait until no page has an edit in flight and all have applied the same log prefix. */
-async function settle(pages: Page[]): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        const states = await Promise.all(pages.map(read));
-        return states.every((s) => s.pending === 0 && s.applied === states[0]!.applied);
-      },
-      { timeout: 15_000 },
-    )
-    .toBe(true);
-}
-
-async function hashes(pages: Page[]): Promise<string[]> {
-  return Promise.all(pages.map(async (page) => (await read(page)).hash));
 }
 
 test("two browsers editing one room end with the same state hash", async ({ browser }) => {
