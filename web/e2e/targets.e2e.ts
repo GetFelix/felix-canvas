@@ -35,7 +35,10 @@ async function times(page: Page, kind: "echo" | "peerEdit" | "cursor"): Promise<
 }
 
 async function snapshotterPosition(): Promise<{ applied: number; saved: number }> {
-  return (await (await fetch(SNAPSHOTTER)).json()) as { applied: number; saved: number };
+  const rooms = (await (await fetch(SNAPSHOTTER)).json()) as {
+    lobby: { applied: number; saved: number };
+  };
+  return rooms.lobby;
 }
 
 test("the performance targets", async ({ browser }) => {

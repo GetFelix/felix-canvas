@@ -34,9 +34,10 @@ declare global {
 const opened: BrowserContext[] = [];
 
 /**
- * Open `room` in a fresh context, signed in through the development IdP as
- * `user`. With `name`, the page uses it as its display name. Returns once the
- * page is back from signing in, joined or not.
+ * Open `room` in a fresh context, signed in as `user`: through the development
+ * IdP, or with CANVAS_E2E_PASSWORD through a Dex login form as
+ * `<user>@example.com`. With `name`, the page uses it as its display name.
+ * Returns once the page is back from signing in, joined or not.
  */
 export async function open(
   browser: Browser,
@@ -61,7 +62,14 @@ export async function open(
   const page = await context.newPage();
   setup?.(page);
   await page.goto(`/?room=${room}`);
-  await page.getByRole("link", { name: `Continue as ${user}` }).click();
+  const password = process.env.CANVAS_E2E_PASSWORD;
+  if (password) {
+    await page.locator("input[name=login]").fill(`${user}@example.com`);
+    await page.locator("input[name=password]").fill(password);
+    await page.locator("#submit-login").click();
+  } else {
+    await page.getByRole("link", { name: `Continue as ${user}` }).click();
+  }
   await page.waitForURL(`**/?room=${room}`);
   return page;
 }

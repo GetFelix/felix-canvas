@@ -1,0 +1,12 @@
+# An example of bringing your own identity provider: Dex, with two local
+# users. CI runs the install this way too. Start it with
+#   docker compose --env-file .env --env-file dex.env -f docker-compose.yml -f dex.yaml up -d
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:v2.44.0
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      - ./dex-config.yaml:/etc/dex/config.yaml:ro
+    ports:
+      - "127.0.0.1:5556:5556"
+    restart: unless-stopped

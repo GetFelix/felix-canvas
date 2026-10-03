@@ -12,9 +12,13 @@ test("a cold browser joins a busy room from its snapshot and converges", async (
 
   const tail = await busyRoom(10_000, 10);
   await expect
-    .poll(async () => ((await (await fetch(SNAPSHOTTER)).json()) as { saved: number }).saved, {
-      timeout: 60_000,
-    })
+    .poll(
+      async () =>
+        ((await (await fetch(SNAPSHOTTER)).json()) as { lobby: { saved: number } }).lobby.saved,
+      {
+        timeout: 60_000,
+      },
+    )
     .toBeGreaterThan(tail - 1000);
 
   // Someone keeps editing while the new browser joins.

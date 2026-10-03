@@ -1,0 +1,25 @@
+# Dex for the example in dex.yaml. Both users' password is "password".
+issuer: http://127.0.0.1:5556/dex
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+  # The canvas page calls discovery and the token endpoint from its origin.
+  allowedOrigins: ["http://127.0.0.1:8787", "http://localhost:8787"]
+oauth2:
+  skipApprovalScreen: true
+enablePasswordDB: true
+staticClients:
+  - id: felix-canvas
+    name: Felix Canvas
+    public: true
+    redirectURIs: ["http://127.0.0.1:8787/", "http://localhost:8787/"]
+staticPasswords:
+  - email: ana@example.com
+    username: ana
+    userID: 4f7c1a52-6c4e-4b8e-9d5c-3c1f6c2b8a01
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+  - email: ben@example.com
+    username: ben
+    userID: 9a1d2e3f-7b6c-4d5e-8f90-1a2b3c4d5e6f
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"

@@ -6,6 +6,7 @@
 export interface OidcConfig {
   issuer: string;
   client_id: string;
+  scopes: string;
 }
 
 const TOKEN_KEY = "felix-canvas.id-token";
@@ -91,7 +92,7 @@ export async function signIn(config: OidcConfig): Promise<never> {
     response_type: "code",
     client_id: config.client_id,
     redirect_uri: redirectUri(),
-    scope: "openid profile",
+    scope: config.scopes,
     state: pending.state,
     nonce: pending.nonce,
     code_challenge: await challenge(pending.verifier),

@@ -59,33 +59,10 @@ the snapshotter's token and the broker's certificate to `dev/state/`. Every run
 starts from an empty log. Open <http://localhost:5173/?room=studio> as `ben` to
 see a refused room.
 
-The gateway has no token of its own: each browser session gets one from the
-control plane when it joins. It reads these variables:
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `CANVAS_LISTEN` | `127.0.0.1:8787` | Where browsers connect |
-| `CANVAS_FELIX_BROKERS` | `127.0.0.1:5000` | Comma-separated broker addresses |
-| `CANVAS_FELIX_SERVER_NAME` | `localhost` | The name the broker's certificate is checked against |
-| `CANVAS_FELIX_CA_FILE` | the platform trust store | PEM certificates to trust for the broker |
-| `CANVAS_FELIX_CONTROL_PLANE` | `http://127.0.0.1:8443` | The Felix control plane, where sign-ins are exchanged |
-| `CANVAS_TENANT` | `canvas` | The Felix tenant |
-| `CANVAS_NAMESPACE` | `default` | The Felix namespace the rooms live in |
-| `CANVAS_OIDC_ISSUER` | `http://127.0.0.1:9400` | The identity provider browsers sign in with |
-| `CANVAS_OIDC_CLIENT_ID` | `felix-canvas` | The client registered for the canvas at that provider |
-| `CANVAS_MEMBER_TTL_SECONDS` | `30` | How long a member entry outlives its last refresh |
-
-The snapshotter serves one room. It reads `CANVAS_FELIX_BROKERS`,
-`CANVAS_FELIX_SERVER_NAME`, `CANVAS_FELIX_CA_FILE`, `CANVAS_TENANT` and
-`CANVAS_NAMESPACE` as above, `CANVAS_FELIX_TOKEN` for its own token,
-`CANVAS_ROOM` (default `lobby`), and four more:
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `CANVAS_SNAPSHOTTER_LISTEN` | `127.0.0.1:8788` | Where it answers `GET /` with `{"room", "applied", "saved"}`: the last offset folded and the last one a stored snapshot holds |
-| `CANVAS_SNAPSHOT_EVERY_OPS` | `500` | Write a snapshot once this many records are folded but not saved |
-| `CANVAS_SNAPSHOT_EVERY_MS` | `30000` | Or once the oldest of them has waited this long |
-| `CANVAS_SNAPSHOTTER_CLAIM_WAIT_MS` | `30000` | How long it waits after starting before it reads, so records an earlier run claimed come back first. Match the broker's `FELIX_GROUP_VISIBILITY_TIMEOUT_MS` |
+The gateway, the snapshotter and the seed read the variables in the
+[configuration reference](self-hosting.md#configuration-reference). Their
+defaults match this stack, so a local run needs only the broker's certificate
+and the snapshotter's token from `dev/state/`.
 
 Four settings there exist only because of Felix gaps:
 
@@ -134,6 +111,30 @@ The brokers trust each other without certificates
 (`FELIX_INTERNAL_ALLOW_UNAUTHENTICATED`), which is fine on a compose network
 only the brokers share and nowhere else.
 
+## Images and the compose install
+
+`docker/gateway.Dockerfile` and `docker/snapshotter.Dockerfile` build from the
+repository root:
+
+```bash
+docker build -f docker/gateway.Dockerfile -t ghcr.io/gabloe/felix-canvas:dev .
+docker build -f docker/snapshotter.Dockerfile -t ghcr.io/gabloe/felix-canvas-snapshotter:dev .
+CANVAS_VERSION=dev docker compose -f deploy/compose/docker-compose.yml up -d
+```
+
+The gateway image serves the built page from `CANVAS_WEB_DIR`, so the install
+needs no separate web server. The snapshotter image also carries
+`dev/seed.mjs` and `dev/idp.mjs`, which the compose file runs from it.
+
+`CANVAS_E2E_URL` points the Playwright tests at an install that is already
+running instead of starting their own servers, and `CANVAS_E2E_PASSWORD` makes
+them sign in through a Dex login form. Only `convergence.e2e.ts` is meant for
+an install; the others drive the dev stack directly.
+
+A release is a `v*` tag. Before tagging, set the compose file's
+`CANVAS_VERSION` default to the new version; the release workflow refuses a tag
+that does not match.
+
 ## What CI checks
 
 | Job | Checks |
@@ -143,6 +144,7 @@ only the brokers share and nowhere else.
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
 | Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, and a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 | Failover against a Felix cluster | Starts the three-broker stack and runs `web/e2e/failover.e2e.ts`: two browsers edit while a third watches the room's history, the broker that owns the room's op log is killed, and both editors end with the same state hash, which is also the fold of the log read back from offset 0. Every edit a browser saw acknowledged is in that log, the history view reaches the same state, the snapshotter carries on, and a browser that joins afterwards matches. It is a separate job, and not a required check, because it needs three brokers and stops one |
+| Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page and once with Dex. On a `v*` tag it pushes, merges and signs the images first and runs the install from GHCR |
 
 ## Measuring the performance targets
 
