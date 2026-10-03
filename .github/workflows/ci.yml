@@ -64,7 +64,7 @@ jobs:
           node -e '
             const lock = require("./package-lock.json");
             const bad = Object.entries(lock.packages)
-              .filter(([path, entry]) => path && !entry.link)
+              .filter(([path, entry]) => path.includes("node_modules/") && !entry.link)
               .filter(([, entry]) =>
                 !entry.resolved?.startsWith("https://registry.npmjs.org/") ||
                 !entry.integrity?.startsWith("sha512-"));
