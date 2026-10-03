@@ -232,7 +232,8 @@ M8 makes it something you can run. What it proves, in CI:
   the web page from the same origin) and `felix-canvas-snapshotter`, on amd64
   and arm64 runners. A `v*` tag pushes them to GHCR as one multi-arch image
   each and signs them with cosign, the way Felix releases its own.
-- The release compose file starts Felix, Postgres, both canvas images and a
+- The release compose file starts Felix (its control plane keeping metadata
+  in its own Raft log, so there is no database), both canvas images and a
   seed from those images, and two browsers draw together in it.
 - The same install signed in through Dex instead of the development page, with
   members named by email, which is the path for any other OpenID Connect
@@ -333,7 +334,7 @@ that runs them with Felix:
 ```bash
 git clone --depth 1 --branch v0.1.0 https://github.com/gabloe/felix-canvas
 cd felix-canvas/deploy/compose
-# change FELIX_BOOTSTRAP_TOKEN and POSTGRES_PASSWORD in .env first
+# change FELIX_BOOTSTRAP_TOKEN and FELIX_RAFT_PEER_TOKEN in .env first
 docker compose up -d
 ```
 

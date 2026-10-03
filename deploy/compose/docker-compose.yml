@@ -1,32 +1,25 @@
-# Felix Canvas, self-hosted: the Felix control plane (over Postgres) and one
-# broker, the canvas gateway and snapshotter, and a one-shot seed that
-# creates the tenant, the rooms and the service tokens.
+# Felix Canvas, self-hosted: the Felix control plane and one broker, the
+# canvas gateway and snapshotter, and a one-shot seed that creates the
+# tenant, the rooms and the service tokens. Nothing else: no database.
 #
 # Settings live in .env next to this file; docs/self-hosting.md describes
 # each one. Upgrading means replacing this file and keeping .env.
 name: felix-canvas
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: felix
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: felix
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U felix -d felix"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-    restart: unless-stopped
-
   controlplane:
     image: ghcr.io/gabloe/felix-controlplane:${FELIX_VERSION:-0.6.0-preview}
     environment:
-      FELIX_CONTROLPLANE_STORAGE_BACKEND: postgres
-      FELIX_CONTROLPLANE_POSTGRES_URL: postgres://felix:${POSTGRES_PASSWORD}@postgres:5432/felix
+      # The metadata lives in the control plane's own Raft log, so there is
+      # no database beside Felix. One member is a group of one.
+      FELIX_CONTROLPLANE_STORAGE_BACKEND: raft
+      FELIX_RAFT_NODE_ID: "1"
+      FELIX_RAFT_PEERS: 1=controlplane:8444
+      FELIX_RAFT_BIND_ADDR: 0.0.0.0:8444
+      FELIX_RAFT_DATA_DIR: /var/lib/felix/raft
+      FELIX_RAFT_CLUSTER_ID: felix-canvas
+      FELIX_RAFT_PEER_TOKEN: ${FELIX_RAFT_PEER_TOKEN:?set FELIX_RAFT_PEER_TOKEN in .env}
+      FELIX_RAFT_INITIAL_CLUSTER_STATE: new
       # The seed initializes the tenant through this listener. It has no
       # published port, so only containers on this network reach it.
       FELIX_BOOTSTRAP_ENABLED: "true"
@@ -41,9 +34,8 @@ services:
       # (felix#955), so the tokens must outlive the time between restarts.
       FELIX_EXCHANGE_TOKEN_TTL_SECONDS: ${FELIX_TOKEN_TTL_SECONDS:-2592000}
       RUST_LOG: ${FELIX_LOG:-info}
-    depends_on:
-      postgres:
-        condition: service_healthy
+    volumes:
+      - controlplane-data:/var/lib/felix
     restart: unless-stopped
 
   # Signs in the admin, broker and snapshotter service accounts for the seed,
@@ -180,6 +172,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres-data:
+  controlplane-data:
   felix-data:
   state:

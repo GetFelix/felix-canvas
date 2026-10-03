@@ -11,8 +11,7 @@ gateway, the snapshotter and the seed read.
 | `gateway` | `ghcr.io/gabloe/felix-canvas` | No | Serves the web page and `/ws` from one origin, exchanges each browser's sign-in for a Felix token narrowed to one room, and relays to Felix |
 | `snapshotter` | `ghcr.io/gabloe/felix-canvas-snapshotter` | No | Keeps each room's folded state in the Felix cache, so joining a busy room is fast |
 | `broker` | `ghcr.io/gabloe/felix-broker` | Yes, `felix-data` | Felix: every room's op log, snapshots, member list and counters |
-| `controlplane` | `ghcr.io/gabloe/felix-controlplane` | In Postgres | Felix: the tenant, rooms, roles and token exchange |
-| `postgres` | `postgres` | Yes, `postgres-data` | The control plane's store |
+| `controlplane` | `ghcr.io/gabloe/felix-controlplane` | Yes, `controlplane-data` | Felix: the tenant, rooms, roles and token exchange, kept in its own Raft log |
 | `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and writes the broker's and snapshotter's tokens |
 | `tokens` | the snapshotter image | No | Signs in the seed's service accounts; never published |
 | `certs` | the gateway image | Writes `state` | Makes the broker a TLS certificate on first start |
@@ -42,9 +41,9 @@ because the broker reserves a segment up front for each log a room writes to
    cd felix-canvas/deploy/compose
    ```
 
-2. Edit `.env`. Change `FELIX_BOOTSTRAP_TOKEN` and `POSTGRES_PASSWORD` before
-   the first start: the bootstrap token can create tenants and cluster
-   credentials.
+2. Edit `.env`. Change `FELIX_BOOTSTRAP_TOKEN` and `FELIX_RAFT_PEER_TOKEN`
+   before the first start: the bootstrap token can create tenants and cluster
+   credentials, and the peer token can replace the Felix metadata.
 
 3. Start it:
 
@@ -169,7 +168,8 @@ first start; the certificate must name `broker`, and its issuer must be in the
 certificate file you give the gateway and snapshotter.
 
 **The control plane** is plain HTTP on the compose network, which nothing
-outside reaches. So is the `tokens` provider, which is why
+outside reaches, and so is its Raft peer listener, which also requires the
+peer token. So is the `tokens` provider, which is why
 `FELIX_CONTROLPLANE_OIDC_ALLOW_INSECURE_HTTP` is on.
 
 ## Backups
@@ -178,31 +178,34 @@ Two volumes hold everything, and they belong together:
 
 | Volume | What | Lose it and |
 |---|---|---|
-| `postgres-data` | The tenant, rooms, roles and trusted issuers | Felix no longer knows the rooms in its log |
+| `controlplane-data` | The control plane's Raft log and snapshots: the tenant, rooms, roles and trusted issuers | Felix no longer knows the rooms in its log |
 | `felix-data` | Every room's op log, snapshots, member list and sequence counters | Every drawing is gone |
 | `state` | The service tokens and the broker certificate | Nothing: the seed re-mints the tokens and `certs` makes a new certificate |
 
-Back them up together, with the broker stopped so its log is not mid-write:
+Back them up together, with Felix stopped so neither is mid-write. The
+control plane is a Raft group of one, so a copy of its volume taken while it
+is stopped is the whole of its state:
 
 ```bash
-docker compose stop gateway snapshotter broker
-docker compose exec postgres pg_dump -U felix felix > felix-metadata.sql
-docker run --rm -v felix-canvas_felix-data:/data -v "$PWD":/backup debian:trixie-slim \
-  tar czf /backup/felix-data.tar.gz -C /data .
+docker compose stop gateway snapshotter broker controlplane
+docker run --rm -v "$PWD":/out \
+  -v felix-canvas_controlplane-data:/backup/controlplane -v felix-canvas_felix-data:/backup/broker \
+  debian:trixie-slim tar czf /out/felix-backup.tar.gz -C /backup controlplane broker
 docker compose up -d
 ```
 
-To restore, start from empty volumes, load the dump into Postgres before the
-control plane starts, untar the log into `felix-data`, and start the rest:
+To restore, start from empty volumes, untar both, and start everything:
 
 ```bash
 docker compose down -v
-docker compose up -d --wait postgres
-docker compose exec -T postgres psql -U felix felix < felix-metadata.sql
-docker run --rm -v felix-canvas_felix-data:/data -v "$PWD":/backup debian:trixie-slim \
-  tar xzf /backup/felix-data.tar.gz -C /data
+docker run --rm -v "$PWD":/out \
+  -v felix-canvas_controlplane-data:/backup/controlplane -v felix-canvas_felix-data:/backup/broker \
+  debian:trixie-slim tar xzf /out/felix-backup.tar.gz -C /backup
 docker compose up -d
 ```
+
+The backup holds every tenant's token signing keys, so keep it as you would a
+password.
 
 A log restored without its metadata, or the other way round, does not match:
 the broker would hold records for streams the control plane does not know.
@@ -244,7 +247,7 @@ supported one.
 | Variable | Default | Meaning |
 |---|---|---|
 | `FELIX_BOOTSTRAP_TOKEN` | required | The control plane's day-0 token. The seed uses it to create the tenant |
-| `POSTGRES_PASSWORD` | required | The control plane's database password |
+| `FELIX_RAFT_PEER_TOKEN` | required | The control plane's Raft peer token, 32 characters or more. Whoever holds it can replace the metadata |
 | `CANVAS_BIND` | `127.0.0.1` | The host address the canvas listens on. `0.0.0.0` for every interface |
 | `CANVAS_PORT` | `8787` | The host port the canvas listens on |
 | `COMPOSE_PROFILES` | `dev-idp` | `dev-idp` runs the development sign-in page. Empty once you use your own provider |
