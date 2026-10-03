@@ -1,5 +1,6 @@
 // The snapshotter for one room. Settings come from the same CANVAS_*
-// variables as the gateway, with its own token; see docs/development.md.
+// variables as the gateway, plus its own token and room; see
+// docs/development.md.
 import { createServer } from "node:http";
 
 import felix from "felix-client";
@@ -18,6 +19,9 @@ const namespace = env("CANVAS_NAMESPACE", "default");
 const room = env("CANVAS_ROOM", "lobby");
 const [host, port] = env("CANVAS_SNAPSHOTTER_LISTEN", "127.0.0.1:8788").split(":");
 const ops = `canvas.ops.${room}`;
+// The gateway reads the snapshot under the same names; see gateway/src/room.rs.
+const snapshots = `canvas.snap.${room}`;
+const snapshotKey = "latest";
 const group = "snapshotter";
 
 const client = await felix.Client.connect(
@@ -31,9 +35,9 @@ const client = await felix.Client.connect(
 const log: RoomLog = {
   poll: (max, waitMs) => client.groupPoll(tenant, namespace, ops, 0, group, max, waitMs),
   ack: (offset) => client.groupAck(tenant, namespace, ops, 0, group, offset),
-  readSnapshot: () => client.cacheGet(tenant, namespace, "canvas.snap", room),
+  readSnapshot: () => client.cacheGet(tenant, namespace, snapshots, snapshotKey),
   writeSnapshot: (bytes) =>
-    client.cachePut(tenant, namespace, "canvas.snap", room, Buffer.from(bytes)),
+    client.cachePut(tenant, namespace, snapshots, snapshotKey, Buffer.from(bytes)),
 };
 const snapshotter = new Snapshotter(log, {
   everyOps: Number(env("CANVAS_SNAPSHOT_EVERY_OPS", "500")),

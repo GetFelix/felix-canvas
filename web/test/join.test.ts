@@ -134,7 +134,7 @@ class FakeGateway implements Gateway {
 function join(room: Room): { session: Session; requests: string[]; connections: FakeGateway[] } {
   const requests: string[] = [];
   const connections: FakeGateway[] = [];
-  const session = new Session("ws://fake", async () => {
+  const session = new Session("ws://fake", { room: "lobby", token: "t" }, async () => {
     const connection = new FakeGateway(room, requests);
     connections.push(connection);
     return connection;
@@ -215,5 +215,25 @@ describe("joining a room", () => {
     expect(session.caughtUp).toBe(true);
     expect(session.replica.confirmed.shapes.get(1n)?.fields.y).toBe(42);
     expect(stateHash(session.replica.confirmed)).toBe(room.hash());
+  });
+});
+
+describe("a refused join", () => {
+  it("stops the session instead of reconnecting", async () => {
+    let opened = 0;
+    const session = new Session("ws://fake", { room: "studio", token: "t" }, async () => {
+      opened++;
+      const connection = new FakeGateway(new Room(), []);
+      setTimeout(() => {
+        connection.onError(new GatewayError("forbidden", "not a member of this room"));
+        connection.close();
+      });
+      return connection;
+    });
+    session.start();
+    await until(() => session.refused !== null);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(session.refused).toBe("forbidden");
+    expect(opened).toBe(1);
   });
 });

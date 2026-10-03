@@ -13,7 +13,7 @@ import {
   type Presence,
 } from "@felix-canvas/model";
 
-import { GatewayClient, type GatewayEvent } from "./gateway.js";
+import { GatewayClient, type GatewayEvent, type Join } from "./gateway.js";
 import { Members, memberKey } from "./members.js";
 
 /** The part of {@link GatewayClient} a session uses, so tests can stand in for it. */
@@ -110,8 +110,16 @@ export class Session {
   /** Called when someone joined or left the member list, or changed name or colour. */
   onMembersChange: () => void = () => {};
 
+  /**
+   * Why the gateway turned this session away for good: the sign-in is no
+   * longer accepted, or this person may not open the room. `null` while it
+   * is allowed in, or still finding out.
+   */
+  refused: "signed_out" | "forbidden" | null = null;
+
   readonly #url: string;
-  readonly #open: (url: string) => Promise<Gateway>;
+  readonly #join: Join;
+  readonly #open: (url: string, join: Join) => Promise<Gateway>;
   #client: Gateway | null = null;
   #awaitingSnapshot = false;
   #seq = 0;
@@ -123,8 +131,13 @@ export class Session {
   #member: Member | null = null;
   #refresh: { worker: Worker; everyMs: number } | null = null;
 
-  constructor(url: string, open: (url: string) => Promise<Gateway> = GatewayClient.connect) {
+  constructor(
+    url: string,
+    join: Join,
+    open: (url: string, join: Join) => Promise<Gateway> = GatewayClient.connect,
+  ) {
     this.#url = url;
+    this.#join = join;
     this.#open = open;
   }
 
@@ -184,7 +197,10 @@ export class Session {
     // The socket message keeps order with a refresh still queued; the beacon
     // is what survives the page unloading.
     this.#client?.removeMember(key);
-    navigator.sendBeacon(new URL("/members/leave", this.#url.replace(/^ws/, "http")), key);
+    navigator.sendBeacon(
+      new URL("/members/leave", this.#url.replace(/^ws/, "http")),
+      JSON.stringify({ ...this.#join, key }),
+    );
   }
 
   /** Drop member entries past their deadline. */
@@ -212,7 +228,7 @@ export class Session {
   async #connect(): Promise<void> {
     let client: Gateway;
     try {
-      client = await this.#open(this.#url);
+      client = await this.#open(this.#url, this.#join);
     } catch {
       this.#retry();
       return;
@@ -255,6 +271,9 @@ export class Session {
           this.#resubscribing = false;
           this.#subscribeOps(client);
         }, wait);
+      } else if (error.code === "signed_out" || error.code === "forbidden") {
+        this.refused = error.code;
+        this.onStatusChange();
       } else if (error.code === "watch_failed") {
         setTimeout(() => {
           if (this.#client === client) client.watchMembers();
@@ -265,6 +284,8 @@ export class Session {
     client.onClose = () => {
       if (this.#client !== client) return;
       this.#client = null;
+      // Trying again would only be refused again.
+      if (this.refused) return;
       this.connection = "reconnecting";
       this.onStatusChange();
       this.#retry();
