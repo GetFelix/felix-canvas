@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "packages/gateway-client",
     "model",
     "web",
     "snapshotter"

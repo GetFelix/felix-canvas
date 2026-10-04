@@ -347,7 +347,7 @@ jobs:
         working-directory: .
         run: |
           npm ci
-          npm run build -w @felix-canvas/model
+          npm run build -w felix-gateway-client -w @felix-canvas/model
           npx -w @felix-canvas/web playwright install --with-deps chromium
 
       - name: Two browsers draw together
@@ -425,7 +425,7 @@ jobs:
       - name: Install the test dependencies
         run: |
           npm ci
-          npm run build -w @felix-canvas/model
+          npm run build -w felix-gateway-client -w @felix-canvas/model
           npx -w @felix-canvas/web playwright install --with-deps chromium
 
       - name: Two browsers draw together

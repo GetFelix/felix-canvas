@@ -1,6 +1,6 @@
 import { decodeMember, type Member } from "@felix-canvas/model";
 
-import type { CacheEntry } from "./gateway.js";
+import type { CacheEntry } from "felix-gateway-client";
 import { PEER_COLORS, paletteIndex } from "./peers.js";
 
 /** Someone in the room, as their member entry describes them. */

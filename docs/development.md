@@ -6,7 +6,7 @@ repository is laid out, the rules the lockfile follows, and what CI checks.
 ## Where to run it
 
 Everything runs on one machine: Docker for Felix, Rust for the gateway, and Node
-for `model/`, `web/` and the snapshotter.
+for `model/`, `web/`, the snapshotter and the gateway client.
 
 | Environment | When | Notes |
 |---|---|---|
@@ -101,6 +101,7 @@ variable the gateway, the snapshotter and the seed read.
 | Path | What |
 |---|---|
 | `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes. `examples/viewers.rs` holds the viewers for the fanout measurement |
+| `packages/gateway-client/` | The `felix-gateway-client` npm package: the browser half of the gateway protocol, and an in-memory fake of the gateway that `web/` tests build on |
 | `model/` | The op schema, its MessagePack encoding, the fold, the snapshot format and the state hash, shared by the browser and the snapshotter |
 | `snapshotter/` | Node service: reads a room's log through a consumer group with the `felix-client` npm package and keeps its snapshot in the cache |
 | `web/` | The browser client: Canvas2D renderer, tools, the op pipeline and join path, and the Playwright tests |
@@ -240,7 +241,7 @@ this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
 |---|---|
 | Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
 | Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it with `deploy/scope.toml`, including the narrowing test: a token for one room is refused by the broker on another room's streams, counters, snapshot and member list |
-| TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
+| TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `packages/gateway-client/`, `model/`, `web/` and `snapshotter/` |
 | Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound, two people typing into one text box at once and ending with the same text, the canvas breaking a fixed set of bodies into the same lines as the editor, every control and shortcut of the text bar in both themes, pasted HTML keeping only the formats text can have, carets staying on their characters while others type, and an open editor keeping its caret and unsent typing through a rejoin from the snapshot. The history, cold-join and slow-connection tests have typing in their load. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 | Failover against a Felix cluster | Starts the three-broker stack and runs `web/e2e/failover.e2e.ts`: two browsers edit while a third watches the room's history, the broker that owns the room's op log is killed, and both editors end with the same state hash, which is also the fold of the log read back from offset 0. Every edit a browser saw acknowledged is in that log, the history view reaches the same state, the snapshotter carries on, and a browser that joins afterwards matches. It is a separate job, and not a required check, because it needs three brokers and stops one |
 | Release (workflow) | On pull requests, a dry run of the release: the tree's versions agree, the `CHANGELOG.md` section for that version exists, and the chart and the compose bundle package. See [Releasing](#releasing) |
@@ -252,8 +253,8 @@ A release is a `v*` tag on `main`, such as `v0.2.0`, or `v0.2.0-rc.1` for a
 pre-release. To cut one:
 
 1. In one pull request, set the new version everywhere the release workflow
-   checks: `gateway/Cargo.toml`, the `package.json` of `model/`, `web/` and
-   `snapshotter/`, `package-lock.json` and `Cargo.lock` (run `cargo check` and
+   checks: `gateway/Cargo.toml`, the `package.json` of `packages/gateway-client/`,
+   `model/`, `web/` and `snapshotter/`, `package-lock.json` and `Cargo.lock` (run `cargo check` and
    `npm install`), the chart's `version` and `appVersion` in
    `deploy/helm/felix-canvas/Chart.yaml`, every `CANVAS_VERSION` default in
    `deploy/compose/docker-compose.yml`, and the image tags and release links in

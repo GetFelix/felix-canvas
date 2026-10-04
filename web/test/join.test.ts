@@ -1,7 +1,7 @@
 import { decodeOp, encodePresence, stateHash } from "@felix-canvas/model";
 import { describe, expect, it, vi } from "vitest";
 
-import { GatewayError } from "../src/gateway.js";
+import { GatewayError } from "felix-gateway-client";
 import { Session } from "../src/session.js";
 import { FakeGateway, Room, other, until } from "./fake-gateway.js";
 
