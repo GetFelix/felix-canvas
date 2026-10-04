@@ -41,8 +41,8 @@ The first release. Tested against Felix 0.6.0-preview.
 - Scale and failover: measured publish latency with 500 viewers, and a
   three-broker setup in which editing carries on when the broker holding a
   room's log is killed, with no acknowledged change lost. (#53)
-- Release images `ghcr.io/gabloe/felix-canvas` and
-  `ghcr.io/gabloe/felix-canvas-snapshotter` for `linux/amd64` and
+- Release images `ghcr.io/getfelix/felix-canvas` and
+  `ghcr.io/getfelix/felix-canvas-snapshotter` for `linux/amd64` and
   `linux/arm64`, signed with cosign; a Docker Compose install with no database
   beside Felix; a Dex example for your own identity provider; and a Helm chart
   that installs next to the Felix chart. (#51, #52)

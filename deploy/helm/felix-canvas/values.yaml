@@ -46,7 +46,7 @@ rooms: lobby=ana,ben studio=ana
 
 gateway:
   image:
-    repository: gabloe/felix-canvas
+    repository: getfelix/felix-canvas
     # Pin by digest in production: images are signed by digest. Wins over the tag.
     digest: ""
   # Gateways hold no state, so any number serve any room.
@@ -84,7 +84,7 @@ gateway:
 # wrong snapshots.
 snapshotter:
   image:
-    repository: gabloe/felix-canvas-snapshotter
+    repository: getfelix/felix-canvas-snapshotter
     digest: ""
   resources:
     requests:

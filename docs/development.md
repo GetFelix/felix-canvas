@@ -133,7 +133,8 @@ a Codespace.
 
 `dev/up.sh` starts the broker and control plane from
 `ghcr.io/gabloe/felix-broker` and `felix-controlplane` at the version pinned in
-`dev/docker-compose.yml`, along with `dev/idp.mjs`, a stand-in OpenID Connect
+`dev/docker-compose.yml` (0.6.0-preview is under `gabloe`; later Felix releases
+publish under `getfelix`), along with `dev/idp.mjs`, a stand-in OpenID Connect
 provider on `127.0.0.1:9400`. Its sign-in page signs in anyone who picks a name,
 and the canvas shows that name capitalised: `ana` appears as Ana.
 The seed then creates two rooms and decides who may open them:
@@ -165,9 +166,9 @@ Four settings there exist only because of Felix gaps:
 
 | Setting | Why | Felix issue |
 |---|---|---|
-| `GET /token?sub=` on `dev/idp.mjs` | The seed and the tests need tokens without a browser, and Felix issues them only in exchange for an IdP token | [#954](https://github.com/gabloe/felix/issues/954) |
-| `FELIX_EXCHANGE_TOKEN_TTL_SECONDS=86400` | A standalone broker reads its node token once, so the default 900 s would end a dev session after 15 minutes | [#955](https://github.com/gabloe/felix/issues/955) |
-| `FELIX_ACK_ON_COMMIT=true` | Only an ack after the write carries the record's offset, and that is a broker-wide setting | [#956](https://github.com/gabloe/felix/issues/956) |
+| `GET /token?sub=` on `dev/idp.mjs` | The seed and the tests need tokens without a browser, and Felix issues them only in exchange for an IdP token | [#954](https://github.com/GetFelix/felix/issues/954) |
+| `FELIX_EXCHANGE_TOKEN_TTL_SECONDS=86400` | A standalone broker reads its node token once, so the default 900 s would end a dev session after 15 minutes | [#955](https://github.com/GetFelix/felix/issues/955) |
+| `FELIX_ACK_ON_COMMIT=true` | Only an ack after the write carries the record's offset, and that is a broker-wide setting | [#956](https://github.com/GetFelix/felix/issues/956) |
 | `FELIX_SUB_QUEUE_BOUND=8192` | The broker's writer queue is per connection and holds one entry per subscription per change, so at the default of 64 a client holding 100 subscriptions on one connection loses changes even at 50 a second, and no metric counts the loss | Not filed yet |
 
 ### Three brokers
@@ -214,8 +215,8 @@ only the brokers share and nowhere else.
 repository root:
 
 ```bash
-docker build -f docker/gateway.Dockerfile -t ghcr.io/gabloe/felix-canvas:dev .
-docker build -f docker/snapshotter.Dockerfile -t ghcr.io/gabloe/felix-canvas-snapshotter:dev .
+docker build -f docker/gateway.Dockerfile -t ghcr.io/getfelix/felix-canvas:dev .
+docker build -f docker/snapshotter.Dockerfile -t ghcr.io/getfelix/felix-canvas-snapshotter:dev .
 CANVAS_VERSION=dev docker compose -f deploy/compose/docker-compose.yml up -d
 ```
 
@@ -270,7 +271,7 @@ pre-release. To cut one:
 
 The tag starts the Release workflow. It checks that the tag matches every
 version in the tree, runs the Images workflow to build, push and sign both
-images and run the compose install from them, packages the chart and pushes it to `oci://ghcr.io/gabloe/charts/felix-canvas`
+images and run the compose install from them, packages the chart and pushes it to `oci://ghcr.io/getfelix/charts/felix-canvas`
 signed with cosign, bundles `deploy/compose/` as
 `felix-canvas-compose-<version>.tar.gz`, and creates the GitHub release. Its
 notes are the version's `CHANGELOG.md` section, an install block and the image
@@ -332,7 +333,7 @@ counted the publisher's records.
 The editing browser is one of the viewers, so the 1-viewer case starts no
 extra subscriptions and the 500-viewer case starts 499. Every gateway session
 has its own Felix client, because Felix ties a connection to one token
-([felix#969](https://github.com/gabloe/felix/issues/969)). The gateway opens
+([felix#969](https://github.com/GetFelix/felix/issues/969)). The gateway opens
 one publish, one subscription and one cache connection per session rather
 than Felix's default 4, 8 and 8, which against the broker's limit of 512
 connections per address would stop one gateway host at about 25 sessions.
@@ -340,7 +341,7 @@ connections per address would stop one gateway host at about 25 sessions.
 ## Milestones and issues
 
 Work follows the build order in [design.md](design.md#build-order). Each milestone
-is a [GitHub milestone](https://github.com/gabloe/felix-canvas/milestones), each
+is a [GitHub milestone](https://github.com/GetFelix/felix-canvas/milestones), each
 piece of it is an issue, and each milestone lands as one pull request that closes
 its issues. When Felix gets in the way, file an issue on
-[Felix](https://github.com/gabloe/felix/issues) and link it from the pull request.
+[Felix](https://github.com/GetFelix/felix/issues) and link it from the pull request.

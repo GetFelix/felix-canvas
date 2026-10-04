@@ -25,11 +25,11 @@ END = r"(?![0-9A-Za-z.-])"
 # Places the docs name a released version: image and chart references, the
 # release download links and the compose bundle's name.
 DOC_PINS = [
-    re.compile(rf"ghcr\.io/gabloe/(?:charts/)?felix-canvas[a-z-]*:({VERSION}){END}"),
+    re.compile(rf"ghcr\.io/getfelix/(?:charts/)?felix-canvas[a-z-]*:({VERSION}){END}"),
     re.compile(rf"releases/download/v({VERSION})/"),
     re.compile(rf"felix-canvas-compose-({VERSION})(?:\.tar\.gz|{END})"),
     re.compile(rf"felix-canvas-({VERSION})\.tgz"),
-    re.compile(rf"oci://ghcr\.io/gabloe/charts/felix-canvas --version ({VERSION}){END}"),
+    re.compile(rf"oci://ghcr\.io/getfelix/charts/felix-canvas --version ({VERSION}){END}"),
 ]
 DOC_FILES = ["README.md", "deploy/helm/felix-canvas/README.md", *sorted(
     str(p.relative_to(REPO)) for p in (REPO / "docs").rglob("*.md"))]

@@ -8,8 +8,8 @@ gateway, the snapshotter and the seed read.
 
 | Service | Image | Holds state? | Job |
 |---|---|---|---|
-| `gateway` | `ghcr.io/gabloe/felix-canvas` | No | Serves the web page and `/ws` from one origin, exchanges each browser's sign-in for a Felix token narrowed to one room, and relays to Felix |
-| `snapshotter` | `ghcr.io/gabloe/felix-canvas-snapshotter` | No | Keeps each room's folded state in the Felix cache, so joining a busy room is fast |
+| `gateway` | `ghcr.io/getfelix/felix-canvas` | No | Serves the web page and `/ws` from one origin, exchanges each browser's sign-in for a Felix token narrowed to one room, and relays to Felix |
+| `snapshotter` | `ghcr.io/getfelix/felix-canvas-snapshotter` | No | Keeps each room's folded state in the Felix cache, so joining a busy room is fast |
 | `broker` | `ghcr.io/gabloe/felix-broker` | Yes, `felix-data` | Felix: every room's op log, snapshots, member list and counters |
 | `controlplane` | `ghcr.io/gabloe/felix-controlplane` | Yes, `controlplane-data` | Felix: the tenant, rooms, roles and token exchange, kept in its own Raft log |
 | `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and writes the broker's and snapshotter's tokens |
@@ -17,22 +17,24 @@ gateway, the snapshotter and the seed read.
 | `certs` | the gateway image | Writes `state` | Makes the broker a TLS certificate on first start |
 | `idp` | the snapshotter image | No | The development sign-in page, while you try it out |
 
+Felix 0.6.0-preview, which the install pins, is published under `ghcr.io/gabloe`; Felix releases after it publish under `ghcr.io/getfelix`.
+
 Both canvas images are built for `linux/amd64` and `linux/arm64` and signed
 with cosign by the images workflow when a release is published. The release notes
 list each image's digest. To check one before you run it:
 
 ```bash
-cosign verify ghcr.io/gabloe/felix-canvas:0.1.0 \
-  --certificate-identity-regexp 'https://github.com/gabloe/felix-canvas/.github/workflows/images.yml@refs/.*' \
+cosign verify ghcr.io/getfelix/felix-canvas:0.1.0 \
+  --certificate-identity-regexp 'https://github.com/GetFelix/felix-canvas/.github/workflows/images.yml@refs/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The Helm chart is published as `oci://ghcr.io/gabloe/charts/felix-canvas` and
+The Helm chart is published as `oci://ghcr.io/getfelix/charts/felix-canvas` and
 signed by the release workflow:
 
 ```bash
-cosign verify ghcr.io/gabloe/charts/felix-canvas:0.1.0 \
-  --certificate-identity-regexp 'https://github.com/gabloe/felix-canvas/.github/workflows/release.yml@refs/.*' \
+cosign verify ghcr.io/getfelix/charts/felix-canvas:0.1.0 \
+  --certificate-identity-regexp 'https://github.com/GetFelix/felix-canvas/.github/workflows/release.yml@refs/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -44,12 +46,12 @@ because the broker reserves a segment up front for each log a room writes to
 (see `FELIX_SEGMENT_BYTES`).
 
 1. Download the compose bundle attached to a
-   [release](https://github.com/gabloe/felix-canvas/releases). It holds
+   [release](https://github.com/GetFelix/felix-canvas/releases). It holds
    `deploy/compose/` from that release, with the image tags defaulting to the
    release's version:
 
    ```bash
-   curl -fsSL https://github.com/gabloe/felix-canvas/releases/download/v0.1.0/felix-canvas-compose-0.1.0.tar.gz | tar xz
+   curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.1.0/felix-canvas-compose-0.1.0.tar.gz | tar xz
    cd felix-canvas-compose-0.1.0
    ```
 
@@ -248,7 +250,7 @@ the new release has run for a while: restoring it with the old compose file is
 the way back.
 
 The broker and snapshotter read their tokens once, when they start
-([felix#955](https://github.com/gabloe/felix/issues/955)), and the tokens last
+([felix#955](https://github.com/GetFelix/felix/issues/955)), and the tokens last
 `FELIX_TOKEN_TTL_SECONDS`, 30 days by default. Restart at least that often,
 which also re-mints them:
 
@@ -259,7 +261,7 @@ docker compose up -d --force-recreate
 ## Kubernetes
 
 `deploy/helm/felix-canvas` runs the canvas next to a release of the
-[felix chart](https://github.com/gabloe/felix/tree/main/deploy/helm/felix):
+[felix chart](https://github.com/GetFelix/felix/tree/main/deploy/helm/felix):
 the gateway scaled horizontally, one snapshotter, and the seed as a Job. The
 [chart's README](../deploy/helm/felix-canvas/README.md) lists what it renders.
 
@@ -286,7 +288,7 @@ kind, with the values in `deploy/helm/felix-canvas/ci/`.
    felix chart's README describes.
 
    ```bash
-   git clone --depth 1 --branch v0.6.0-preview https://github.com/gabloe/felix
+   git clone --depth 1 --branch v0.6.0-preview https://github.com/GetFelix/felix
    helm install felix felix/deploy/helm/felix -f felix-values.yaml
    ```
 
@@ -296,7 +298,7 @@ kind, with the values in `deploy/helm/felix-canvas/ci/`.
    `helm install` takes in place of the `oci://` reference:
 
    ```bash
-   helm install felix-canvas oci://ghcr.io/gabloe/charts/felix-canvas --version 0.1.0 -f canvas-values.yaml
+   helm install felix-canvas oci://ghcr.io/getfelix/charts/felix-canvas --version 0.1.0 -f canvas-values.yaml
    kubectl wait --for=condition=complete job -l app.kubernetes.io/component=seed
    ```
 
@@ -339,7 +341,7 @@ for instance a different member TTL: `--set-file gateway.scope=scope.toml`.
 
 Each `helm upgrade` of this chart runs the seed again, which adds new rooms and
 members and re-mints both tokens. The broker and the snapshotter read theirs
-only at start ([felix#955](https://github.com/gabloe/felix/issues/955)), so
+only at start ([felix#955](https://github.com/GetFelix/felix/issues/955)), so
 restart both within the token lifetime:
 
 ```bash
@@ -436,8 +438,8 @@ between them and write wrong snapshots.
 
 | What | Why | Felix issue |
 |---|---|---|
-| The `tokens` service | Felix issues tokens only in exchange for an IdP token, so the service accounts need a provider of their own | [#954](https://github.com/gabloe/felix/issues/954) |
-| `FELIX_TOKEN_TTL_SECONDS` of 30 days and a restart within it | A standalone broker reads its token once and stops working when it expires | [#955](https://github.com/gabloe/felix/issues/955) |
-| `FELIX_ACK_ON_COMMIT=true` on the broker | Only an ack after the write carries the record's offset, and that is a broker-wide setting | [#956](https://github.com/gabloe/felix/issues/956) |
+| The `tokens` service | Felix issues tokens only in exchange for an IdP token, so the service accounts need a provider of their own | [#954](https://github.com/GetFelix/felix/issues/954) |
+| `FELIX_TOKEN_TTL_SECONDS` of 30 days and a restart within it | A standalone broker reads its token once and stops working when it expires | [#955](https://github.com/GetFelix/felix/issues/955) |
+| `FELIX_ACK_ON_COMMIT=true` on the broker | Only an ack after the write carries the record's offset, and that is a broker-wide setting | [#956](https://github.com/GetFelix/felix/issues/956) |
 | `FELIX_SUB_QUEUE_BOUND=8192` on the broker | The writer queue is per connection, with one entry per subscription for each change, so the default of 64 loses changes on a busy connection | Not filed yet |
-| The compose file is written from Felix's environment reference | Felix's own compose docs still pin 0.5.0 | [#957](https://github.com/gabloe/felix/issues/957) |
+| The compose file is written from Felix's environment reference | Felix's own compose docs still pin 0.5.0 | [#957](https://github.com/GetFelix/felix/issues/957) |
