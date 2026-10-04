@@ -36,8 +36,8 @@ once:
 cargo install --locked felix-gateway --version 0.1.0
 ```
 
-1. Start Felix. This pulls `ghcr.io/gabloe/felix-broker` and
-   `felix-controlplane` at `0.6.0-preview`, starts a stand-in sign-in service on
+1. Start Felix. This pulls `ghcr.io/getfelix/felix-broker` and
+   `felix-controlplane` at `0.6.0-preview.2`, starts a stand-in sign-in service on
    `127.0.0.1:9400`, creates the `lobby` and `studio` rooms, and writes the
    snapshotter's token and the broker's certificate to `dev/state/`:
 
@@ -132,9 +132,8 @@ a Codespace.
 ## The Felix dev stack
 
 `dev/up.sh` starts the broker and control plane from
-`ghcr.io/gabloe/felix-broker` and `felix-controlplane` at the version pinned in
-`dev/docker-compose.yml` (0.6.0-preview is under `gabloe`; later Felix releases
-publish under `getfelix`), along with `dev/idp.mjs`, a stand-in OpenID Connect
+`ghcr.io/getfelix/felix-broker` and `felix-controlplane` at the version pinned in
+`dev/docker-compose.yml`, along with `dev/idp.mjs`, a stand-in OpenID Connect
 provider on `127.0.0.1:9400`. Its sign-in page signs in anyone who picks a name,
 and the canvas shows that name capitalised: `ana` appears as Ana.
 The seed then creates two rooms and decides who may open them:

@@ -10,21 +10,21 @@ gateway, the snapshotter and the seed read.
 |---|---|---|---|
 | `gateway` | `ghcr.io/getfelix/felix-canvas` | No | [felix-gateway](https://github.com/GetFelix/felix-gateway) 0.1.0 with the web page and the canvas's scope file added. Serves the page and `/ws` from one origin, exchanges each browser's sign-in for a Felix token narrowed to one room, and relays to Felix |
 | `snapshotter` | `ghcr.io/getfelix/felix-canvas-snapshotter` | No | Keeps each room's folded state in the Felix cache, so joining a busy room is fast |
-| `broker` | `ghcr.io/gabloe/felix-broker` | Yes, `felix-data` | Felix: every room's op log, snapshots, member list and counters |
-| `controlplane` | `ghcr.io/gabloe/felix-controlplane` | Yes, `controlplane-data` | Felix: the tenant, rooms, roles and token exchange, kept in its own Raft log |
+| `broker` | `ghcr.io/getfelix/felix-broker` | Yes, `felix-data` | Felix: every room's op log, snapshots, member list and counters |
+| `controlplane` | `ghcr.io/getfelix/felix-controlplane` | Yes, `controlplane-data` | Felix: the tenant, rooms, roles and token exchange, kept in its own Raft log |
 | `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and writes the broker's and snapshotter's tokens |
 | `tokens` | the snapshotter image | No | Signs in the seed's service accounts; never published |
 | `certs` | the gateway image | Writes `state` | Makes the broker a TLS certificate on first start |
 | `idp` | the snapshotter image | No | The development sign-in page, while you try it out |
 
-Felix 0.6.0-preview, which the install pins, is published under `ghcr.io/gabloe`; Felix releases after it publish under `ghcr.io/getfelix`.
+The install pins Felix 0.6.0-preview.2.
 
 Both canvas images are built for `linux/amd64` and `linux/arm64` and signed
 with cosign by the images workflow when a release is published. The release notes
 list each image's digest. To check one before you run it:
 
 ```bash
-cosign verify ghcr.io/getfelix/felix-canvas:0.1.0 \
+cosign verify ghcr.io/getfelix/felix-canvas:0.2.0 \
   --certificate-identity-regexp 'https://github.com/GetFelix/felix-canvas/.github/workflows/images.yml@refs/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -33,7 +33,7 @@ The Helm chart is published as `oci://ghcr.io/getfelix/charts/felix-canvas` and
 signed by the release workflow:
 
 ```bash
-cosign verify ghcr.io/getfelix/charts/felix-canvas:0.1.0 \
+cosign verify ghcr.io/getfelix/charts/felix-canvas:0.2.0 \
   --certificate-identity-regexp 'https://github.com/GetFelix/felix-canvas/.github/workflows/release.yml@refs/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -51,8 +51,8 @@ because the broker reserves a segment up front for each log a room writes to
    release's version:
 
    ```bash
-   curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.1.0/felix-canvas-compose-0.1.0.tar.gz | tar xz
-   cd felix-canvas-compose-0.1.0
+   curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.2.0/felix-canvas-compose-0.2.0.tar.gz | tar xz
+   cd felix-canvas-compose-0.2.0
    ```
 
    `SHA256SUMS` on the same release has its checksum.
@@ -288,17 +288,17 @@ kind, with the values in `deploy/helm/felix-canvas/ci/`.
    felix chart's README describes.
 
    ```bash
-   git clone --depth 1 --branch v0.6.0-preview https://github.com/GetFelix/felix
+   git clone --depth 1 --branch v0.6.0-preview.2 https://github.com/GetFelix/felix
    helm install felix felix/deploy/helm/felix -f felix-values.yaml
    ```
 
 3. This chart, from the release, with your provider and rooms. Its seed Job
    stores the broker credential in the Secret `felix-canvas-broker-credential`.
-   Each release also attaches the chart as `felix-canvas-0.1.0.tgz`, which
+   Each release also attaches the chart as `felix-canvas-0.2.0.tgz`, which
    `helm install` takes in place of the `oci://` reference:
 
    ```bash
-   helm install felix-canvas oci://ghcr.io/getfelix/charts/felix-canvas --version 0.1.0 -f canvas-values.yaml
+   helm install felix-canvas oci://ghcr.io/getfelix/charts/felix-canvas --version 0.2.0 -f canvas-values.yaml
    kubectl wait --for=condition=complete job -l app.kubernetes.io/component=seed
    ```
 

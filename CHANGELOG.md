@@ -11,6 +11,12 @@ version it was tested against.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-04
+
+Tested against Felix 0.6.0-preview.2, which the install now pins. Felix images
+come from `ghcr.io/getfelix`. Upgrading means renaming any `CANVAS_*` gateway
+override to `GATEWAY_*` (see below).
+
 ### Changed
 
 - The gateway is now the published felix-gateway 0.1.0. The canvas image is
@@ -20,6 +26,7 @@ version it was tested against.
   compose file and the chart set them, but a gateway override such as
   `gateway.extraEnv` that sets `CANVAS_*` must be renamed. The image's scope
   file moved to `/etc/felix-gateway/scope.toml`.
+- The snapshotter uses `felix-client` 0.6.0-preview.2.
 
 ## [0.1.0] - 2026-10-03
 
