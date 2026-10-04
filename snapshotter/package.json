@@ -1,6 +1,6 @@
 {
   "name": "@felix-canvas/snapshotter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Folds a room's op log and keeps its snapshot in the Felix cache",
   "private": true,
   "license": "MIT",

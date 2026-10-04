@@ -1,6 +1,6 @@
 {
   "name": "@felix-canvas/web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The Felix Canvas browser client",
   "private": true,
   "license": "MIT",

@@ -383,7 +383,7 @@ jobs:
     timeout-minutes: 30
     env:
       # The Felix release the chart and the compose file are tested against.
-      FELIX_VERSION: v0.6.0-preview
+      FELIX_VERSION: v0.6.0-preview.2
     steps:
       - uses: actions/checkout@v4
 
