@@ -100,7 +100,7 @@ variable the gateway, the snapshotter and the seed read.
 
 | Path | What |
 |---|---|
-| `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes. `examples/viewers.rs` holds the viewers for the fanout measurement |
+| `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes. It is the [felix-gateway](https://github.com/GetFelix/felix-gateway) project, kept here until the canvas moves to the published 0.1.0. `examples/viewers.rs` holds the viewers for the fanout measurement |
 | `packages/gateway-client/` | The `felix-gateway-client` npm package: the browser half of the gateway protocol, and an in-memory fake of the gateway that `web/` tests build on |
 | `model/` | The op schema, its MessagePack encoding, the fold, the snapshot format and the state hash, shared by the browser and the snapshotter |
 | `snapshotter/` | Node service: reads a room's log through a consumer group with the `felix-client` npm package and keeps its snapshot in the cache |

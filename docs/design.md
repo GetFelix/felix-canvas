@@ -168,6 +168,8 @@ caches and counters each room owns, under short aliases the browser uses.
 [protocol.md](protocol.md#the-scope-file) describes it. Everything that makes
 those resources a canvas lives in the browser and the snapshotter, so the same
 gateway can serve another application on Felix with a different scope file.
+It now has its own repository, [felix-gateway](https://github.com/GetFelix/felix-gateway). Its code
+stays in `gateway/` here until the canvas moves to the published 0.1.0.
 
 The snapshotter is a separate process on purpose. Snapshot writes are throughput
 work and must never share a fate with an interactive socket, and running it as a
@@ -1001,7 +1003,7 @@ is the milestone order: everything that proves something about Felix lands by M4
 
 **What this project would contribute upstream to Felix:**
 
-1. **A first-party browser bridge.** The gateway built here generalizes: WebSocket or WebTransport ingress belongs in Felix itself, and is the largest single unlock for browser-facing products.
+1. **A first-party browser bridge.** The gateway built here generalizes, and is now [felix-gateway](https://github.com/GetFelix/felix-gateway): WebSocket or WebTransport ingress belongs in Felix itself, and is the largest single unlock for browser-facing products.
 2. **Key-level cache authorization.** Narrowing stops at a whole cache, so every room needs its own caches. Grants over a key prefix would let rooms share them.
 3. **A TypeScript client.** Felix has Rust and Python clients and a Node addon; a browser-side one would let the gateway shrink to pure transport.
 4. **Snapshot-plus-offset as a primitive.** Every application that wants fast joins needs this pattern; a helper in `felix-client` would hand it to all of them.
