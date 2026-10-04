@@ -90,7 +90,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build -w @felix-canvas/model
+      - run: npm run build -w felix-gateway-client -w @felix-canvas/model
       - name: Build the gateway
         run: cargo build --locked -p felix-canvas-gateway
       - name: Install Chromium
@@ -127,7 +127,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build -w @felix-canvas/model
+      - run: npm run build -w felix-gateway-client -w @felix-canvas/model
       - name: Build the gateway
         run: cargo build --locked -p felix-canvas-gateway
       - name: Install Chromium

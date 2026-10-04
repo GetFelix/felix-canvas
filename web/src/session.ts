@@ -15,7 +15,7 @@ import {
   type Presence,
 } from "@felix-canvas/model";
 
-import { GatewayClient, type GatewayEvent, type Join } from "./gateway.js";
+import { GatewayClient, type GatewayEvent, type Join } from "felix-gateway-client";
 import { Members, memberKey } from "./members.js";
 
 /** The room to open, and the ID token that signs the browser in. */

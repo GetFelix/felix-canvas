@@ -1,6 +1,6 @@
 import { History, decodeOp, decodeSnapshot, type Op } from "@felix-canvas/model";
 
-import { GatewayClient, type GatewayEvent, type Join } from "./gateway.js";
+import { GatewayClient, type GatewayEvent, type Join } from "felix-gateway-client";
 import { LATEST, OPS, SNAPSHOTS } from "./session.js";
 
 /** The part of {@link GatewayClient} the feed uses, so tests can stand in for it. */
