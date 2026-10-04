@@ -12,39 +12,39 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  rust:
-    name: Rust lint and unit tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
-
+  # The pinned felix-gateway with the canvas's scope file and seed. The
+  # gateway's own tests run in felix-gateway's CI.
   gateway-felix:
     name: Gateway against Felix
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - name: Build the tests
-        run: cargo test --locked --no-run
+      - uses: ./.github/actions/felix-gateway
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Start Felix
         run: dev/up.sh
-      - name: Integration tests
+      - name: Start the gateway
+        env:
+          GATEWAY_FELIX_CA_FILE: ${{ github.workspace }}/dev/state/broker-cert.pem
+          GATEWAY_SCOPE_FILE: ${{ github.workspace }}/deploy/scope.toml
+          GATEWAY_TENANT: canvas
+          GATEWAY_OIDC_CLIENT_ID: felix-canvas
         run: |
-          export CANVAS_FELIX_CA_FILE="$PWD/dev/state/broker-cert.pem"
-          export CANVAS_SCOPE_FILE="$PWD/deploy/scope.toml"
-          cargo test --locked --test relay -- --include-ignored --nocapture
+          felix-gateway > "$RUNNER_TEMP/gateway.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8787/oidc && curl -fsS http://127.0.0.1:8787/metrics && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Join rooms as members and as a stranger
+        run: node .github/scripts/gateway-join.mjs
+      - name: Gateway log
+        if: always()
+        run: cat "$RUNNER_TEMP/gateway.log"
       - name: Felix logs
         if: failure()
         run: docker compose -f dev/docker-compose.yml logs
@@ -83,16 +83,13 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/felix-gateway
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build -w felix-gateway-client -w @felix-canvas/model
-      - name: Build the gateway
-        run: cargo build --locked -p felix-canvas-gateway
+      - run: npm run build -w @felix-canvas/model
       - name: Install Chromium
         run: npx -w @felix-canvas/web playwright install --with-deps chromium
       - name: Start Felix
@@ -120,16 +117,13 @@ jobs:
       CANVAS_FELIX_BROKERS: 127.0.0.1:5000,127.0.0.1:5010,127.0.0.1:5020
     steps:
       - uses: actions/checkout@v4
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/felix-gateway
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build -w felix-gateway-client -w @felix-canvas/model
-      - name: Build the gateway
-        run: cargo build --locked -p felix-canvas-gateway
+      - run: npm run build -w @felix-canvas/model
       - name: Install Chromium
         run: npx -w @felix-canvas/web playwright install --with-deps chromium
       - name: Start three brokers

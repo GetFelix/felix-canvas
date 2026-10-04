@@ -40,7 +40,7 @@ const connect = () =>
   );
 let client = await connect();
 
-// The gateway reads the snapshot under the same names; see gateway/src/room.rs.
+// The gateway reads the snapshot under the same names; see deploy/scope.toml.
 function roomLog(room: string): RoomLog {
   const ops = `canvas.ops.${room}`;
   const snapshots = `canvas.snap.${room}`;

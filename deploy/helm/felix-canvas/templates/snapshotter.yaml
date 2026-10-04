@@ -31,7 +31,7 @@ spec:
           securityContext:
             {{- include "canvas.securityContext" . | nindent 12 }}
           env:
-            {{- include "canvas.felixEnv" . | nindent 12 }}
+            {{- include "canvas.felixEnv" (list . "CANVAS") | nindent 12 }}
             - name: CANVAS_ROOMS
               value: {{ .Values.rooms | quote }}
             # Written by the seed Job. The pod waits for it on a first install.

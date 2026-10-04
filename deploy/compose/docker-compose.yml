@@ -144,7 +144,7 @@ services:
 
   snapshotter:
     image: ghcr.io/getfelix/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
-    environment: &felix-client
+    environment:
       CANVAS_FELIX_BROKERS: broker:5000
       CANVAS_FELIX_SERVER_NAME: broker
       CANVAS_FELIX_CA_FILE: /state/broker.crt
@@ -161,14 +161,18 @@ services:
 
   gateway:
     image: ghcr.io/getfelix/felix-canvas:${CANVAS_VERSION:-0.1.0}
+    # felix-gateway reads GATEWAY_* variables; the image carries the canvas's
+    # scope file.
     environment:
-      <<: *felix-client
-      CANVAS_FELIX_CONTROL_PLANE: http://controlplane:8443
-      CANVAS_OIDC_ISSUER: ${CANVAS_OIDC_ISSUER}
-      CANVAS_OIDC_CLIENT_ID: ${CANVAS_OIDC_CLIENT_ID}
-      CANVAS_OIDC_SCOPES: ${CANVAS_OIDC_SCOPES:-openid profile}
-      # The canvas's scope file, which the image carries.
-      CANVAS_SCOPE_FILE: /usr/share/felix-canvas/scope.toml
+      GATEWAY_FELIX_BROKERS: broker:5000
+      GATEWAY_FELIX_SERVER_NAME: broker
+      GATEWAY_FELIX_CA_FILE: /state/broker.crt
+      GATEWAY_FELIX_CONTROL_PLANE: http://controlplane:8443
+      GATEWAY_TENANT: ${CANVAS_TENANT:-canvas}
+      GATEWAY_NAMESPACE: ${CANVAS_NAMESPACE:-default}
+      GATEWAY_OIDC_ISSUER: ${CANVAS_OIDC_ISSUER}
+      GATEWAY_OIDC_CLIENT_ID: ${CANVAS_OIDC_CLIENT_ID}
+      GATEWAY_OIDC_SCOPES: ${CANVAS_OIDC_SCOPES:-openid profile}
       RUST_LOG: ${CANVAS_LOG:-info}
     ports:
       - "${CANVAS_BIND:-127.0.0.1}:${CANVAS_PORT:-8787}:8787"

@@ -31,18 +31,19 @@ interface Summary {
 
 /** Start `count` viewers on the lobby's op stream; `stop` ends them and returns what they saw. */
 async function startViewers(count: number): Promise<{ stop: () => Promise<Summary> }> {
-  const child = spawn(
-    process.env.CANVAS_VIEWERS_BIN ?? `${root}target/release/examples/viewers`,
-    [String(count), `${root}dev/state/snapshotter.token`, "ops", "lobby"],
-    {
-      env: {
-        ...process.env,
-        CANVAS_FELIX_CA_FILE: `${root}dev/state/broker-cert.pem`,
-        CANVAS_SCOPE_FILE: `${root}deploy/scope.toml`,
-      },
-      stdio: ["pipe", "pipe", "inherit"],
+  // felix-gateway's `viewers` example; docs/development.md says how to build it.
+  const bin = process.env.CANVAS_VIEWERS_BIN;
+  if (!bin) throw new Error("set CANVAS_VIEWERS_BIN to felix-gateway's viewers example");
+  const child = spawn(bin, [String(count), `${root}dev/state/snapshotter.token`, "ops", "lobby"], {
+    env: {
+      ...process.env,
+      GATEWAY_FELIX_CA_FILE: `${root}dev/state/broker-cert.pem`,
+      GATEWAY_SCOPE_FILE: `${root}deploy/scope.toml`,
+      GATEWAY_TENANT: "canvas",
+      GATEWAY_OIDC_CLIENT_ID: "felix-canvas",
     },
-  );
+    stdio: ["pipe", "pipe", "inherit"],
+  });
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
   const ready = await lines.next();
   if (ready.value !== "ready") throw new Error(`viewers did not start: ${ready.value}`);
