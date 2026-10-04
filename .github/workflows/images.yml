@@ -43,6 +43,10 @@ jobs:
     outputs:
       images: ${{ steps.plan.outputs.images }}
     steps:
+      # GHCR names must be lowercase and the owner is GetFelix.
+      - name: Registry owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
       - uses: sigstore/cosign-installer@v3
         if: env.PUSH == 'true'
 
@@ -56,8 +60,6 @@ jobs:
 
       - name: Images to build
         id: plan
-        env:
-          OWNER: ${{ github.repository_owner }}
         run: |
           all='[{"name":"felix-canvas","dockerfile":"docker/gateway.Dockerfile"},{"name":"felix-canvas-snapshotter","dockerfile":"docker/snapshotter.Dockerfile"}]'
           if [ "$PUSH" != true ]; then
@@ -105,6 +107,10 @@ jobs:
             arch: arm64
             runner: ubuntu-24.04-arm
     steps:
+      # GHCR names must be lowercase and the owner is GetFelix.
+      - name: Registry owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
       # release.yml has checked that the tag matches the versions in the tree.
       - uses: actions/checkout@v4
         with:
@@ -124,7 +130,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.name }}
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image.name }}
 
       - name: Build${{ env.PUSH == 'true' && ' and push by digest' || '' }}
         id: build
@@ -138,8 +144,8 @@ jobs:
           # the manifest job moved it. Otherwise saved for the install test.
           outputs: >-
             ${{ env.PUSH == 'true'
-              && format('type=image,name={0}/{1}/{2},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY, github.repository_owner, matrix.image.name)
-              || format('type=docker,name={0}/{1}/{2}:ci,dest={3}/image.tar', env.REGISTRY, github.repository_owner, matrix.image.name, runner.temp) }}
+              && format('type=image,name={0}/{1}/{2},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY, env.OWNER, matrix.image.name)
+              || format('type=docker,name={0}/{1}/{2}:ci,dest={3}/image.tar', env.REGISTRY, env.OWNER, matrix.image.name, runner.temp) }}
           # Provenance and SBOM travel with a published image. A tarball for
           # `docker load` cannot carry them.
           provenance: ${{ env.PUSH == 'true' && 'mode=max' || 'false' }}
@@ -197,6 +203,10 @@ jobs:
       matrix:
         image: ${{ fromJSON(needs.plan.outputs.images) }}
     steps:
+      # GHCR names must be lowercase and the owner is GetFelix.
+      - name: Registry owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
       - name: Download the platform digests
         uses: actions/download-artifact@v4
         with:
@@ -236,7 +246,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.name }}
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image.name }}
           tags: |
             type=semver,pattern={{version}},value=${{ inputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }}
@@ -246,7 +256,7 @@ jobs:
         if: env.PUSH == 'true'
         id: merge
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.name }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image.name }}
         working-directory: ${{ runner.temp }}/digests
         run: |
           # shellcheck disable=SC2046
@@ -261,7 +271,7 @@ jobs:
       - name: Sign
         if: env.PUSH == 'true'
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.name }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image.name }}
           DIGEST: ${{ steps.merge.outputs.digest }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
@@ -368,7 +378,7 @@ jobs:
       - name: The Felix chart
         uses: actions/checkout@v4
         with:
-          repository: gabloe/felix
+          repository: GetFelix/felix
           ref: ${{ env.FELIX_VERSION }}
           path: felix
           sparse-checkout: deploy/helm/felix
@@ -390,7 +400,7 @@ jobs:
       - name: Load the images
         run: |
           for tar in "$RUNNER_TEMP"/images/*/image.tar; do docker load -i "$tar"; done
-          kind load docker-image ghcr.io/gabloe/felix-canvas:ci ghcr.io/gabloe/felix-canvas-snapshotter:ci
+          kind load docker-image ghcr.io/getfelix/felix-canvas:ci ghcr.io/getfelix/felix-canvas-snapshotter:ci
 
       - name: Install Felix and the chart
         env:

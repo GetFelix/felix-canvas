@@ -9,6 +9,6 @@ version: 0.1.0
 # The canvas release the defaults were written against. Image tags default to it.
 appVersion: "0.1.0"
 kubeVersion: ">=1.25.0-0"
-home: https://github.com/gabloe/felix-canvas
+home: https://github.com/GetFelix/felix-canvas
 sources:
-  - https://github.com/gabloe/felix-canvas
+  - https://github.com/GetFelix/felix-canvas
