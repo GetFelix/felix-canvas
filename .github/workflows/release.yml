@@ -107,7 +107,7 @@ jobs:
           PUBLISH: ${{ steps.source.outputs.publish }}
         run: |
           if [ -z "$TAG" ]; then
-            TAG="v$(grep -m1 -oP '^version\s*=\s*"\K[^"]+' gateway/Cargo.toml)"
+            TAG="v$(jq -r .version web/package.json)"
           fi
           version="${TAG#v}"
           {

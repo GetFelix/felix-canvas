@@ -40,14 +40,17 @@ export default defineConfig({
     ? []
     : [
         {
-          command: "cargo run --locked -p felix-canvas-gateway",
+          // felix-gateway 0.1.0, from `cargo install felix-gateway --version 0.1.0`.
+          command: process.env.CANVAS_GATEWAY_BIN ?? "felix-gateway",
           cwd: root,
           url: "http://127.0.0.1:8787/metrics",
           env: {
-            CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem`,
-            CANVAS_SCOPE_FILE: e2eScopeFile(),
+            GATEWAY_FELIX_CA_FILE: `${state}/broker-cert.pem`,
+            GATEWAY_SCOPE_FILE: e2eScopeFile(),
+            GATEWAY_TENANT: "canvas",
+            GATEWAY_OIDC_CLIENT_ID: "felix-canvas",
+            GATEWAY_FELIX_BROKERS: process.env.CANVAS_FELIX_BROKERS ?? "127.0.0.1:5000",
           },
-          timeout: 300_000,
           reuseExistingServer: !process.env.CI,
         },
         {

@@ -165,11 +165,11 @@ to many sessions without a JavaScript round trip per event.
 The gateway does not know any canvas names either. A scope file,
 `deploy/scope.toml`, says what a connection opens (a room) and which streams,
 caches and counters each room owns, under short aliases the browser uses.
-[protocol.md](protocol.md#the-scope-file) describes it. Everything that makes
+[protocol.md](protocol.md#the-scope-file) lists it. Everything that makes
 those resources a canvas lives in the browser and the snapshotter, so the same
 gateway can serve another application on Felix with a different scope file.
-It now has its own repository, [felix-gateway](https://github.com/GetFelix/felix-gateway). Its code
-stays in `gateway/` here until the canvas moves to the published 0.1.0.
+It now has its own repository, [felix-gateway](https://github.com/GetFelix/felix-gateway), and
+the canvas runs its 0.1.0 release.
 
 The snapshotter is a separate process on purpose. Snapshot writes are throughput
 work and must never share a fate with an interactive socket, and running it as a
@@ -720,7 +720,7 @@ The exchange can only narrow what RBAC already grants, never widen it, so a
 bug in the gateway cannot produce a token with more reach than the signed-in
 person genuinely has. And the narrowed token is what the broker checks: a
 session in one room cannot publish to, subscribe to or read another room even
-when the same person may open both. The gateway's integration tests prove that
+when the same person may open both. felix-gateway's integration tests prove that
 against the broker directly, with no gateway code in the path.
 
 **Every room has its own caches.** Felix authorizes a cache as a whole, never
@@ -945,7 +945,7 @@ Manufacture the 500 viewers as Felix subscriptions, the way `felix-loadgen`
 does: 500 browser tabs are not a measurable population. Real browsers carry the
 human-facing paths. `felix-loadgen` itself does not fit, because its pubsub
 scenario always publishes its own records at full speed, so
-`gateway/examples/viewers.rs` holds the subscriptions instead while one real
+felix-gateway's `examples/viewers.rs` holds the subscriptions instead while one real
 browser edits. [performance.md](performance.md) records each measurement and
 the machine it came from; [development.md](development.md#measuring-the-performance-targets)
 describes how each is timed.

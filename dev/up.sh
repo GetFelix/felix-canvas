@@ -36,10 +36,11 @@ for _ in $(seq 1 90); do
       cat state/broker-*-cert.pem >state/broker-cert.pem
     fi
     echo "Felix is ready. For the gateway:"
-    echo "  export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem"
-    echo "  export CANVAS_SCOPE_FILE=deploy/scope.toml"
+    echo "  export GATEWAY_FELIX_CA_FILE=dev/state/broker-cert.pem"
+    echo "  export GATEWAY_SCOPE_FILE=deploy/scope.toml"
+    echo "  export GATEWAY_TENANT=canvas GATEWAY_OIDC_CLIENT_ID=felix-canvas"
     if [[ ${#health[@]} -gt 1 ]]; then
-      echo "  export CANVAS_FELIX_BROKERS=127.0.0.1:5000,127.0.0.1:5010,127.0.0.1:5020"
+      echo "  export GATEWAY_FELIX_BROKERS=127.0.0.1:5000,127.0.0.1:5010,127.0.0.1:5020"
     fi
     echo "The snapshotter also takes"
     echo "  export CANVAS_FELIX_TOKEN=\"\$(cat dev/state/snapshotter.token)\""

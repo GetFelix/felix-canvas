@@ -5,13 +5,13 @@ repository is laid out, the rules the lockfile follows, and what CI checks.
 
 ## Where to run it
 
-Everything runs on one machine: Docker for Felix, Rust for the gateway, and Node
-for `model/`, `web/`, the snapshotter and the gateway client.
+Everything runs on one machine: Docker for Felix, Rust to install the gateway,
+and Node for `model/`, `web/` and the snapshotter.
 
 | Environment | When | Notes |
 |---|---|---|
 | Your machine | Docker and npmjs.org are both available | Follow [Running locally](#running-locally). |
-| GitHub Codespace | npmjs.org is blocked, or you don't want Docker locally | The default image has Node and Docker. Install Rust with rustup; `rust-toolchain.toml` pins the version. Use the 4-core machine: the Felix images, the gateway build and Playwright run side by side. |
+| GitHub Codespace | npmjs.org is blocked, or you don't want Docker locally | The default image has Node and Docker. Install Rust 1.97 or later with rustup. Use the 4-core machine: the Felix images, the gateway install and Playwright run side by side. |
 | CI | Every push and pull request | The same checks as below, against the published Felix images. |
 
 A Codespace can be driven from another machine. Write an ssh config once, then
@@ -28,8 +28,13 @@ Delete the Codespace when the work is merged.
 
 ## Running locally
 
-You need Docker, Rust (the toolchain in `rust-toolchain.toml` installs itself),
-and Node 24.
+You need Docker, Rust 1.97 or later, and Node 24. The gateway is
+[felix-gateway](https://github.com/GetFelix/felix-gateway) 0.1.0; install it
+once:
+
+```bash
+cargo install --locked felix-gateway --version 0.1.0
+```
 
 1. Start Felix. This pulls `ghcr.io/gabloe/felix-broker` and
    `felix-controlplane` at `0.6.0-preview`, starts a stand-in sign-in service on
@@ -47,9 +52,10 @@ and Node 24.
    own; each browser's sign-in is exchanged for one when it joins:
 
    ```bash
-   export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem
-   export CANVAS_SCOPE_FILE=deploy/scope.toml
-   cargo run -p felix-canvas-gateway
+   export GATEWAY_FELIX_CA_FILE=dev/state/broker-cert.pem
+   export GATEWAY_SCOPE_FILE=deploy/scope.toml
+   export GATEWAY_TENANT=canvas GATEWAY_OIDC_CLIENT_ID=felix-canvas
+   felix-gateway
    ```
 
 3. In another shell, build the shared model and start the snapshotter, which
@@ -78,15 +84,10 @@ and Node 24.
    both windows should share. `?room=studio` opens the other room, which only
    `ana` may open.
 
-`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs. With the variables
-from step 2 exported, the integration tests run against the same stack:
+`curl -s 127.0.0.1:8787/metrics` shows the latency of both legs.
 
-```bash
-cargo test -- --include-ignored
-```
-
-The browser tests start their own gateway, snapshotter and page against the
-running stack:
+The browser tests start their own gateway (`felix-gateway` on your `PATH`, or
+`CANVAS_GATEWAY_BIN`), snapshotter and page against the running stack:
 
 ```bash
 npx -w @felix-canvas/web playwright install chromium
@@ -94,23 +95,22 @@ npm run test:e2e -w @felix-canvas/web
 ```
 
 [self-hosting.md](self-hosting.md#configuration-reference) lists every
-variable the gateway, the snapshotter and the seed read.
+variable the snapshotter and the seed read, and what the canvas sets for the
+gateway.
 
 ## Repository layout
 
 | Path | What |
 |---|---|
-| `gateway/` | The edge gateway: Rust, `axum` and `felix-client`. Stateless; it relays bytes. It is the [felix-gateway](https://github.com/GetFelix/felix-gateway) project, kept here until the canvas moves to the published 0.1.0. `examples/viewers.rs` holds the viewers for the fanout measurement |
-| `packages/gateway-client/` | The `felix-gateway-client` npm package: the browser half of the gateway protocol, and an in-memory fake of the gateway that `web/` tests build on |
 | `model/` | The op schema, its MessagePack encoding, the fold, the snapshot format and the state hash, shared by the browser and the snapshotter |
 | `snapshotter/` | Node service: reads a room's log through a consumer group with the `felix-client` npm package and keeps its snapshot in the cache |
 | `web/` | The browser client: Canvas2D renderer, tools, the op pipeline and join path, and the Playwright tests |
 | `dev/` | Felix for local runs and CI: Docker Compose over the published images with one broker or three, a stand-in IdP, and the seed script |
-| `docker/` | The Dockerfiles for the two images |
+| `docker/` | The Dockerfiles for the two images. The canvas image is the published `ghcr.io/getfelix/felix-gateway` image plus the web page and `deploy/scope.toml` |
 | `deploy/compose/` | The release compose file, its settings, and a Dex example |
 | `deploy/helm/felix-canvas/` | The Helm chart, run next to the Felix chart |
 | `docs/design.md` | The design: data model, editing and join rules, failure modes, targets |
-| `docs/protocol.md` | The browser to gateway protocol |
+| `docs/protocol.md` | How the canvas uses the gateway: its scope file, join and history order, and payload formats |
 | `docs/ux.md` | The UX and visual design brief the interface is built from |
 | `docs/development.md` | Running it locally, the repository layout, the lockfile rule, the dev stack and CI |
 | `docs/self-hosting.md` | Installing, your own IdP, TLS, backups, upgrades, and every setting |
@@ -152,11 +152,12 @@ the snapshotter's token and the broker's certificate to `dev/state/`. Every run
 starts from an empty log. Open <http://localhost:5173/?room=studio> as `ben` to
 see a refused room.
 
-The gateway, the snapshotter and the seed read the variables in the
-[configuration reference](self-hosting.md#configuration-reference). Their
-defaults match this stack, so a local run needs only the broker's certificate
-and the snapshotter's token from `dev/state/`, and the gateway the canvas's
-scope file, `CANVAS_SCOPE_FILE=deploy/scope.toml`, as in step 2 above.
+The snapshotter and the seed read the variables in the
+[configuration reference](self-hosting.md#configuration-reference), and the
+gateway reads `GATEWAY_*` ones. Their defaults match this stack, so a local run
+needs only the broker's certificate and the snapshotter's token from
+`dev/state/`, and the gateway the canvas's scope file, tenant and client ID, as
+in step 2 above.
 
 The scope file names the room's streams and caches; the seed creates the same
 ones, so a change to one is a change to both. The Playwright config starts the
@@ -188,12 +189,14 @@ default of about twenty.
 | `broker-3` | `127.0.0.1:5020` | `127.0.0.1:8082` |
 
 Each broker signs its own certificate, and `up.sh` concatenates the three into
-`dev/state/broker-cert.pem`. Give the gateway and the snapshotter every broker:
+`dev/state/broker-cert.pem`. Give the gateway and the snapshotter every broker
+(the Playwright config passes `CANVAS_FELIX_BROKERS` on to the gateway):
 
 ```bash
 dev/up.sh --cluster
-export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem
+export CANVAS_FELIX_CA_FILE=dev/state/broker-cert.pem GATEWAY_FELIX_CA_FILE=dev/state/broker-cert.pem
 export CANVAS_FELIX_BROKERS=127.0.0.1:5000,127.0.0.1:5010,127.0.0.1:5020
+export GATEWAY_FELIX_BROKERS=$CANVAS_FELIX_BROKERS
 ```
 
 `GET /v1/placement/replication` on the control plane, with the broker's token
@@ -220,8 +223,9 @@ docker build -f docker/snapshotter.Dockerfile -t ghcr.io/getfelix/felix-canvas-s
 CANVAS_VERSION=dev docker compose -f deploy/compose/docker-compose.yml up -d
 ```
 
-The gateway image serves the built page from `CANVAS_WEB_DIR`, so the install
-needs no separate web server. The snapshotter image also carries
+The gateway image is `ghcr.io/getfelix/felix-gateway` with the built page in
+`GATEWAY_WEB_DIR` and the canvas's scope file, so the install needs no separate
+web server. The snapshotter image also carries
 `dev/seed.mjs` and `dev/idp.mjs`, which the compose file runs from it.
 
 `CANVAS_E2E_URL` points the Playwright tests at an install that is already
@@ -239,9 +243,8 @@ this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
 
 | Job | Checks |
 |---|---|
-| Rust lint and unit tests | `cargo fmt --check`, `cargo clippy -D warnings`, unit tests |
-| Gateway against Felix | Starts the dev stack and runs the gateway's integration tests against it with `deploy/scope.toml`, including the narrowing test: a token for one room is refused by the broker on another room's streams, counters, snapshot and member list |
-| TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `packages/gateway-client/`, `model/`, `web/` and `snapshotter/` |
+| Gateway against Felix | Starts the dev stack and the pinned felix-gateway with `deploy/scope.toml`, and joins rooms as members and as someone who is not one. The gateway's own tests, including the narrowing test at the broker, run in felix-gateway's CI |
+| TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
 | Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound, two people typing into one text box at once and ending with the same text, the canvas breaking a fixed set of bodies into the same lines as the editor, every control and shortcut of the text bar in both themes, pasted HTML keeping only the formats text can have, carets staying on their characters while others type, and an open editor keeping its caret and unsent typing through a rejoin from the snapshot. The history, cold-join and slow-connection tests have typing in their load. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 | Failover against a Felix cluster | Starts the three-broker stack and runs `web/e2e/failover.e2e.ts`: two browsers edit while a third watches the room's history, the broker that owns the room's op log is killed, and both editors end with the same state hash, which is also the fold of the log read back from offset 0. Every edit a browser saw acknowledged is in that log, the history view reaches the same state, the snapshotter carries on, and a browser that joins afterwards matches. It is a separate job, and not a required check, because it needs three brokers and stops one |
 | Release (workflow) | On pull requests, a dry run of the release: the tree's versions agree, the `CHANGELOG.md` section for that version exists, and the chart and the compose bundle package. See [Releasing](#releasing) |
@@ -253,9 +256,8 @@ A release is a `v*` tag on `main`, such as `v0.2.0`, or `v0.2.0-rc.1` for a
 pre-release. To cut one:
 
 1. In one pull request, set the new version everywhere the release workflow
-   checks: `gateway/Cargo.toml`, the `package.json` of `packages/gateway-client/`,
-   `model/`, `web/` and `snapshotter/`, `package-lock.json` and `Cargo.lock` (run `cargo check` and
-   `npm install`), the chart's `version` and `appVersion` in
+   checks: the `package.json` of `model/`, `web/` and `snapshotter/` and
+   `package-lock.json` (run `npm install`), the chart's `version` and `appVersion` in
    `deploy/helm/felix-canvas/Chart.yaml`, every `CANVAS_VERSION` default in
    `deploy/compose/docker-compose.yml`, and the image tags and release links in
    the docs. Rename `## [Unreleased]` in `CHANGELOG.md` to
@@ -288,15 +290,15 @@ Every pull request also runs it as a dry run against the version in the tree.
 ## Measuring the performance targets
 
 Two Playwright specs measure rather than check, so they skip unless asked.
-Run them against a release gateway: a debug build adds its own latency, and
-Playwright reuses a gateway that is already listening.
+The fanout spec needs felix-gateway's `viewers` example, built from a checkout
+of its `v0.1.0` tag:
 
 ```bash
+git clone --branch v0.1.0 https://github.com/GetFelix/felix-gateway ../felix-gateway
+cargo build --release --manifest-path ../felix-gateway/Cargo.toml -p felix-gateway --example viewers
+export CANVAS_VIEWERS_BIN=$PWD/../felix-gateway/target/release/examples/viewers
+
 dev/up.sh
-export CANVAS_FELIX_CA_FILE=$PWD/dev/state/broker-cert.pem
-export CANVAS_SCOPE_FILE=$PWD/deploy/scope.toml
-cargo build --release -p felix-canvas-gateway --bin felix-canvas-gateway --example viewers
-target/release/felix-canvas-gateway &
 
 # Local echo, edit, typing and cursor visibility, snapshot lag and cold joins.
 CANVAS_MEASURE=1 npm run test:e2e -w @felix-canvas/web -- targets
@@ -321,7 +323,7 @@ from.
 | Snapshot lag | The newest change's offset minus the offset the stored snapshot holds, sampled while a writer adds 300 changes a second |
 | Fanout | The editing browser's publish to Felix's acknowledgement, alternating 1 viewer and the full count three times |
 
-The fanout viewers come from `gateway/examples/viewers.rs`: one Felix client
+The fanout viewers come from felix-gateway's `examples/viewers.rs`: one Felix client
 holding a subscription per viewer to the room's op log, from the live tail,
 each counting the changes it receives and any offsets skipped. It does the
 same thing as `felix-loadgen --scenario pubsub --fanout N` on the subscriber

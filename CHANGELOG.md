@@ -11,6 +11,16 @@ version it was tested against.
 
 ## [Unreleased]
 
+### Changed
+
+- The gateway is now the published felix-gateway 0.1.0. The canvas image is
+  built on `ghcr.io/getfelix/felix-gateway:0.1.0`, the page uses
+  `felix-gateway-client` from npm, and `gateway/` and `packages/gateway-client/`
+  are gone. The gateway reads `GATEWAY_*` variables instead of `CANVAS_*`; the
+  compose file and the chart set them, but a gateway override such as
+  `gateway.extraEnv` that sets `CANVAS_*` must be renamed. The image's scope
+  file moved to `/etc/felix-gateway/scope.toml`.
+
 ## [0.1.0] - 2026-10-03
 
 The first release. Tested against Felix 0.6.0-preview.

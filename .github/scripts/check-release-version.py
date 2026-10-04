@@ -44,10 +44,6 @@ def found_versions() -> list[tuple[str, str | None]]:
         return match.group(1) if match else None
 
     out: list[tuple[str, str | None]] = []
-    out.append(("gateway/Cargo.toml", first(r'^version\s*=\s*"([^"]+)"', "gateway/Cargo.toml")))
-    out.append(("Cargo.lock felix-canvas-gateway",
-                first(r'^name = "felix-canvas-gateway"\nversion = "([^"]+)"', "Cargo.lock")))
-
     lock = json.loads(text("package-lock.json"))["packages"]
     for pkg in ["model", "web", "snapshotter"]:
         out.append((f"{pkg}/package.json", json.loads(text(f"{pkg}/package.json")).get("version")))

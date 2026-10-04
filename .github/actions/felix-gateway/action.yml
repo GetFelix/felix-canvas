@@ -1,0 +1,17 @@
+name: felix-gateway
+description: Install the felix-gateway release the canvas runs, from crates.io, cached by version.
+inputs:
+  version:
+    description: The felix-gateway version. Keep it in step with docker/gateway.Dockerfile.
+    default: 0.1.0
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      id: cache
+      with:
+        path: ~/.cargo/bin/felix-gateway
+        key: felix-gateway-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: cargo install --locked felix-gateway --version "${{ inputs.version }}"

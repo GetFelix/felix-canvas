@@ -88,9 +88,9 @@ To work on the code with a local gateway, snapshotter and page, follow
 ## How it works
 
 A browser speaks WebSocket to a stateless Rust gateway, which relays to Felix
-over QUIC with a token narrowed to the browser's room. The gateway is the
-[felix-gateway](https://github.com/GetFelix/felix-gateway) project; its code is in `gateway/` here until
-the canvas moves to the published 0.1.0. The browser's canvas is
+over QUIC with a token narrowed to the browser's room. The gateway is
+[felix-gateway](https://github.com/GetFelix/felix-gateway) 0.1.0, and the
+browser talks to it through its `felix-gateway-client` package. The browser's canvas is
 a fold of the room's op log in offset order, so two browsers that have applied
 the same prefix hold the same canvas and can confirm it with a state hash. A
 Node snapshotter folds the same log with the same `model/` code and keeps the
@@ -140,7 +140,7 @@ issue per piece of work.
 
 - [docs/design.md](docs/design.md): the data model, editing and join rules, text, failure modes and targets.
 - [docs/ux.md](docs/ux.md): the UX and visual design brief the interface is built from.
-- [docs/protocol.md](docs/protocol.md): the browser to gateway protocol.
+- [docs/protocol.md](docs/protocol.md): how the canvas uses the gateway, and its payload formats.
 - [docs/self-hosting.md](docs/self-hosting.md): installing, your own IdP, TLS, backups, upgrades, Kubernetes and every setting.
 - [docs/development.md](docs/development.md): running it locally, the repository layout, the lockfile rule and CI.
 - [docs/performance.md](docs/performance.md): measured results for each target, with their conditions.

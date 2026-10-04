@@ -46,20 +46,23 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- printf "%s-snapshotter-token" (include "canvas.fullname" .) -}}
 {{- end -}}
 
-{{/* Where the gateway and the snapshotter find Felix. */}}
+{{/* Where a component finds Felix, under its variable prefix: (list . "GATEWAY") */}}
 {{- define "canvas.felixEnv" -}}
-- name: CANVAS_FELIX_BROKERS
-  value: {{ join "," (required "felix.brokers is required" .Values.felix.brokers) | quote }}
-- name: CANVAS_FELIX_SERVER_NAME
-  value: {{ .Values.felix.serverName | quote }}
-{{- if .Values.felix.caSecret.name }}
-- name: CANVAS_FELIX_CA_FILE
+{{- $root := index . 0 -}}
+{{- $prefix := index . 1 -}}
+{{- $v := $root.Values.felix -}}
+- name: {{ $prefix }}_FELIX_BROKERS
+  value: {{ join "," (required "felix.brokers is required" $v.brokers) | quote }}
+- name: {{ $prefix }}_FELIX_SERVER_NAME
+  value: {{ $v.serverName | quote }}
+{{- if $v.caSecret.name }}
+- name: {{ $prefix }}_FELIX_CA_FILE
   value: /etc/felix-canvas/ca/ca.crt
 {{- end }}
-- name: CANVAS_TENANT
-  value: {{ .Values.felix.tenant | quote }}
-- name: CANVAS_NAMESPACE
-  value: {{ .Values.felix.namespace | quote }}
+- name: {{ $prefix }}_TENANT
+  value: {{ $v.tenant | quote }}
+- name: {{ $prefix }}_NAMESPACE
+  value: {{ $v.namespace | quote }}
 {{- end -}}
 
 {{- define "canvas.caVolume" -}}

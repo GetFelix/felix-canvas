@@ -29,17 +29,19 @@ spec:
           securityContext:
             {{- include "canvas.securityContext" . | nindent 12 }}
           env:
-            {{- include "canvas.felixEnv" . | nindent 12 }}
-            - name: CANVAS_FELIX_CONTROL_PLANE
+            {{- include "canvas.felixEnv" (list . "GATEWAY") | nindent 12 }}
+            - name: GATEWAY_FELIX_CONTROL_PLANE
               value: {{ required "felix.controlPlaneUrl is required" .Values.felix.controlPlaneUrl | quote }}
-            - name: CANVAS_OIDC_ISSUER
+            - name: GATEWAY_OIDC_ISSUER
               value: {{ include "canvas.issuer" . | quote }}
-            - name: CANVAS_OIDC_CLIENT_ID
+            - name: GATEWAY_OIDC_CLIENT_ID
               value: {{ .Values.oidc.clientId | quote }}
-            - name: CANVAS_OIDC_SCOPES
+            - name: GATEWAY_OIDC_SCOPES
               value: {{ .Values.oidc.scopes | quote }}
-            - name: CANVAS_SCOPE_FILE
-              value: {{ ternary "/etc/felix-canvas/scope/scope.toml" "/usr/share/felix-canvas/scope.toml" (not (empty $g.scope)) | quote }}
+            {{- if $g.scope }}
+            - name: GATEWAY_SCOPE_FILE
+              value: /etc/felix-canvas/scope/scope.toml
+            {{- end }}
             {{- with $g.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

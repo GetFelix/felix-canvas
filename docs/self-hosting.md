@@ -8,7 +8,7 @@ gateway, the snapshotter and the seed read.
 
 | Service | Image | Holds state? | Job |
 |---|---|---|---|
-| `gateway` | `ghcr.io/getfelix/felix-canvas` | No | Serves the web page and `/ws` from one origin, exchanges each browser's sign-in for a Felix token narrowed to one room, and relays to Felix |
+| `gateway` | `ghcr.io/getfelix/felix-canvas` | No | [felix-gateway](https://github.com/GetFelix/felix-gateway) 0.1.0 with the web page and the canvas's scope file added. Serves the page and `/ws` from one origin, exchanges each browser's sign-in for a Felix token narrowed to one room, and relays to Felix |
 | `snapshotter` | `ghcr.io/getfelix/felix-canvas-snapshotter` | No | Keeps each room's folded state in the Felix cache, so joining a busy room is fast |
 | `broker` | `ghcr.io/gabloe/felix-broker` | Yes, `felix-data` | Felix: every room's op log, snapshots, member list and counters |
 | `controlplane` | `ghcr.io/gabloe/felix-controlplane` | Yes, `controlplane-data` | Felix: the tenant, rooms, roles and token exchange, kept in its own Raft log |
@@ -153,10 +153,10 @@ Each room is two streams and three caches in Felix, one shard each:
 [design.md](design.md#authorization) explains why every room has its own.
 
 The gateway learns those names from its scope file, `deploy/scope.toml`, which
-the image carries at `/usr/share/felix-canvas/scope.toml` and the compose file
-points `CANVAS_SCOPE_FILE` at. The seed creates the same names, so leave the
-file as it is unless you change both.
-[protocol.md](protocol.md#the-scope-file) describes the format.
+the image carries at `/etc/felix-gateway/scope.toml`. The seed creates the same
+names, so leave the file as it is unless you change both. felix-gateway's
+[configuration reference](https://github.com/GetFelix/felix-gateway/blob/v0.1.0/docs/configuration.md#the-scope-file)
+describes the format.
 
 ## TLS
 
@@ -375,30 +375,29 @@ brokers scaled to zero so nothing is mid-write.
 
 ### Gateway
 
-The gateway has no token of its own: each browser session gets one from the
-control plane when it joins.
+The gateway is felix-gateway, which reads `GATEWAY_*` variables. Its
+[configuration reference](https://github.com/GetFelix/felix-gateway/blob/v0.1.0/docs/configuration.md)
+lists them all. The canvas image sets these:
 
-| Variable | Default | Meaning |
+| Variable | In the image | Meaning |
 |---|---|---|
-| `CANVAS_LISTEN` | `127.0.0.1:8787` (`0.0.0.0:8787` in the image) | Where browsers connect |
-| `CANVAS_WEB_DIR` | unset (the bundle, in the image) | A built web bundle to serve on every other path |
-| `CANVAS_FELIX_BROKERS` | `127.0.0.1:5000` | Comma-separated broker addresses, `host:port`. Names are resolved at each connection |
-| `CANVAS_FELIX_SERVER_NAME` | `localhost` | The name the broker's certificate is checked against |
-| `CANVAS_FELIX_CA_FILE` | the platform trust store | PEM certificates to trust for the broker |
-| `CANVAS_FELIX_CONTROL_PLANE` | `http://127.0.0.1:8443` | The Felix control plane, where sign-ins are exchanged |
-| `CANVAS_TENANT` | `canvas` | The Felix tenant |
-| `CANVAS_NAMESPACE` | `default` | The Felix namespace the rooms live in |
-| `CANVAS_OIDC_ISSUER` | `http://127.0.0.1:9400` | The identity provider browsers sign in with, as its issuer URL |
-| `CANVAS_OIDC_CLIENT_ID` | `felix-canvas` | The client registered for the canvas at that provider |
-| `CANVAS_OIDC_SCOPES` | `openid profile` | The scopes a browser asks the provider for |
-| `CANVAS_SCOPE_FILE` | required (`/usr/share/felix-canvas/scope.toml` in the image) | The scope file: the room's streams, caches and counters, and what a session may do with each. The member TTL is the `members` cache's `ttl_s`, 30 seconds |
-| `RUST_LOG` | `info` | Log filter |
+| `GATEWAY_LISTEN` | `0.0.0.0:8787` | Where browsers connect |
+| `GATEWAY_WEB_DIR` | `/usr/share/felix-canvas/web` | The built web page, served on every other path |
+| `GATEWAY_SCOPE_FILE` | `/etc/felix-gateway/scope.toml` | The scope file: the room's streams, caches and counters, and what a session may do with each. The member TTL is the `members` cache's `ttl_s`, 30 seconds |
+| `GATEWAY_TENANT` | `canvas` | The Felix tenant |
+| `GATEWAY_OIDC_CLIENT_ID` | `felix-canvas` | The client registered for the canvas at the identity provider |
+
+The compose file and the chart set the rest from the canvas's settings:
+`GATEWAY_FELIX_BROKERS`, `GATEWAY_FELIX_SERVER_NAME`, `GATEWAY_FELIX_CA_FILE`,
+`GATEWAY_FELIX_CONTROL_PLANE`, `GATEWAY_NAMESPACE` and `GATEWAY_OIDC_*`. The
+gateway has no token of its own: each browser session gets one from the
+control plane when it joins.
 
 ### Snapshotter
 
 It reads `CANVAS_FELIX_BROKERS`, `CANVAS_FELIX_SERVER_NAME`,
-`CANVAS_FELIX_CA_FILE`, `CANVAS_TENANT` and `CANVAS_NAMESPACE` as the gateway
-does, and:
+`CANVAS_FELIX_CA_FILE`, `CANVAS_TENANT` and `CANVAS_NAMESPACE`, which mean what
+the gateway's `GATEWAY_*` variables of the same names do, and:
 
 | Variable | Default | Meaning |
 |---|---|---|
