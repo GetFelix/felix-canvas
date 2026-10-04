@@ -26,6 +26,7 @@ override to `GATEWAY_*` (see below).
   compose file and the chart set them, but a gateway override such as
   `gateway.extraEnv` that sets `CANVAS_*` must be renamed. The image's scope
   file moved to `/etc/felix-gateway/scope.toml`.
+- The snapshotter uses `felix-client` 0.6.0-preview.2.
 
 ## [0.1.0] - 2026-10-03
 
