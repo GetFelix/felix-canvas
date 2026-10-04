@@ -5,11 +5,11 @@
 <h1 align="center">Felix Canvas</h1>
 
 <p align="center">
-  A self-hosted multiplayer drawing canvas built on <a href="https://github.com/gabloe/felix">Felix</a>.
+  A self-hosted multiplayer drawing canvas built on <a href="https://github.com/GetFelix/felix">Felix</a>.
 </p>
 
 <p align="center">
-  <a href="https://github.com/gabloe/felix-canvas/actions/workflows/ci.yml"><img src="https://github.com/gabloe/felix-canvas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/GetFelix/felix-canvas/actions/workflows/ci.yml"><img src="https://github.com/GetFelix/felix-canvas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
@@ -20,20 +20,20 @@ their own machines, signed in through their own identity provider, and for
 anyone evaluating Felix who wants to see it carry a complete application.
 
 All of a room's state lives in Felix. Edits go on a durable
-[stream](https://github.com/gabloe/felix/blob/main/docs/semantics.md#delivery-to-subscribers),
+[stream](https://github.com/GetFelix/felix/blob/main/docs/semantics.md#delivery-to-subscribers),
 whose log offsets put them in one order and show a client exactly which ones it
 missed. Cursors go on an in-memory stream that drops new messages for a viewer
 that falls behind. Snapshots, the member list and per-session sequence numbers
-are [cache](https://github.com/gabloe/felix/blob/main/docs/cache-on-log.md) keys
-and [counters](https://github.com/gabloe/felix/blob/main/docs/projections.md#counters),
+are [cache](https://github.com/GetFelix/felix/blob/main/docs/cache-on-log.md) keys
+and [counters](https://github.com/GetFelix/felix/blob/main/docs/projections.md#counters),
 the member list with a TTL and a prefix watch. A
-[consumer group](https://github.com/gabloe/felix/blob/main/docs/projections.md#queues-read-the-log-through-a-shared-cursor)
+[consumer group](https://github.com/GetFelix/felix/blob/main/docs/projections.md#queues-read-the-log-through-a-shared-cursor)
 feeds the snapshotter, and history is a read of the same stream from an earlier
 offset. Each browser gets a Felix token narrowed to one room through the
 control plane's
-[token exchange](https://github.com/gabloe/felix/blob/main/docs/auth.md#control-plane-token-exchange-flow),
+[token exchange](https://github.com/GetFelix/felix/blob/main/docs/auth.md#control-plane-token-exchange-flow),
 and a room keeps working when its broker dies through Felix
-[replication and failover](https://github.com/gabloe/felix/blob/main/docs/semantics.md#failover).
+[replication and failover](https://github.com/GetFelix/felix/blob/main/docs/semantics.md#failover).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/sync-dark.png">
@@ -65,11 +65,11 @@ and a room keeps working when its broker dies through Felix
 ## Quick start
 
 You need Docker with Compose 2.20 or later. Download the compose install from
-the [latest release](https://github.com/gabloe/felix-canvas/releases/latest)
+the [latest release](https://github.com/GetFelix/felix-canvas/releases/latest)
 and start it:
 
 ```bash
-curl -fsSL https://github.com/gabloe/felix-canvas/releases/download/v0.1.0/felix-canvas-compose-0.1.0.tar.gz | tar xz
+curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.1.0/felix-canvas-compose-0.1.0.tar.gz | tar xz
 cd felix-canvas-compose-0.1.0
 # change FELIX_BOOTSTRAP_TOKEN and FELIX_RAFT_PEER_TOKEN in .env first
 docker compose up -d
@@ -118,21 +118,21 @@ compares this with other ways of building a realtime canvas.
 Milestones 0 to 9 are merged. The performance targets are measured on a 4-core
 Codespace in [docs/performance.md](docs/performance.md); a run on dedicated
 hardware is still to do. Each milestone is a
-[GitHub milestone](https://github.com/gabloe/felix-canvas/milestones) with an
+[GitHub milestone](https://github.com/GetFelix/felix-canvas/milestones) with an
 issue per piece of work.
 
 | M | Milestone | Status |
 |---|---|---|
-| [0](https://github.com/gabloe/felix-canvas/milestone/1) | A WebSocket gateway relaying publish and subscribe | Done |
-| [1](https://github.com/gabloe/felix-canvas/milestone/2) | Two browsers, shapes, offset-ordered apply | Done |
-| [2](https://github.com/gabloe/felix-canvas/milestone/3) | Snapshots and the join path | Done |
-| [3](https://github.com/gabloe/felix-canvas/milestone/4) | Presence, cursors and TTL membership | Done |
-| [4](https://github.com/gabloe/felix-canvas/milestone/5) | Slow-client isolation and gap recovery | Done |
-| [5](https://github.com/gabloe/felix-canvas/milestone/6) | History and the time scrubber | Done |
-| [6](https://github.com/gabloe/felix-canvas/milestone/7) | Per-room authorization against a real IdP | Done |
-| [7](https://github.com/gabloe/felix-canvas/milestone/8) | 500 viewers, and killing the owning broker | Done |
-| [8](https://github.com/gabloe/felix-canvas/milestone/9) | Images, a compose install, your own IdP, a Helm chart | Done |
-| [9](https://github.com/gabloe/felix-canvas/milestone/10) | Rich text in shapes | Done |
+| [0](https://github.com/GetFelix/felix-canvas/milestone/1) | A WebSocket gateway relaying publish and subscribe | Done |
+| [1](https://github.com/GetFelix/felix-canvas/milestone/2) | Two browsers, shapes, offset-ordered apply | Done |
+| [2](https://github.com/GetFelix/felix-canvas/milestone/3) | Snapshots and the join path | Done |
+| [3](https://github.com/GetFelix/felix-canvas/milestone/4) | Presence, cursors and TTL membership | Done |
+| [4](https://github.com/GetFelix/felix-canvas/milestone/5) | Slow-client isolation and gap recovery | Done |
+| [5](https://github.com/GetFelix/felix-canvas/milestone/6) | History and the time scrubber | Done |
+| [6](https://github.com/GetFelix/felix-canvas/milestone/7) | Per-room authorization against a real IdP | Done |
+| [7](https://github.com/GetFelix/felix-canvas/milestone/8) | 500 viewers, and killing the owning broker | Done |
+| [8](https://github.com/GetFelix/felix-canvas/milestone/9) | Images, a compose install, your own IdP, a Helm chart | Done |
+| [9](https://github.com/GetFelix/felix-canvas/milestone/10) | Rich text in shapes | Done |
 
 ## Documentation
 

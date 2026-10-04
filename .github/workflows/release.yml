@@ -45,6 +45,10 @@ jobs:
       prerelease: ${{ steps.plan.outputs.prerelease }}
       publish: ${{ steps.plan.outputs.publish }}
     steps:
+      # GHCR names must be lowercase and the owner is GetFelix.
+      - name: Registry owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
       - name: Choose the source
         id: source
         env:
@@ -122,7 +126,6 @@ jobs:
         env:
           TAG: ${{ steps.plan.outputs.tag }}
           VERSION: ${{ steps.plan.outputs.version }}
-          OWNER: ${{ github.repository_owner }}
         run: |
           mkdir -p dist
           python3 .release-tools/.github/scripts/changelog-section.py "$TAG" .release-tools/CHANGELOG.md > notes.md
@@ -218,8 +221,11 @@ jobs:
     env:
       TAG: ${{ needs.build.outputs.tag }}
       VERSION: ${{ needs.build.outputs.version }}
-      OWNER: ${{ github.repository_owner }}
     steps:
+      # GHCR names must be lowercase and the owner is GetFelix.
+      - name: Registry owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
       - uses: actions/download-artifact@v4
         with:
           name: release

@@ -1,14 +1,14 @@
 # felix-canvas
 
 Felix Canvas on Kubernetes, installed next to a release of the
-[felix chart](https://github.com/gabloe/felix/tree/main/deploy/helm/felix).
+[felix chart](https://github.com/GetFelix/felix/tree/main/deploy/helm/felix).
 
 | Component | Shape | Why |
 | --- | --- | --- |
 | Gateway | Deployment, 2 replicas by default, Service, optional Ingress | It holds no state, so any replica serves any room and no session affinity is needed |
 | Snapshotter | Deployment of exactly one, `Recreate` | Two would split each room's records between them and write wrong snapshots |
 | Seed | A Job per revision, with a Role that may write two Secrets | Creates the tenant, rooms and roles at every install and upgrade, and stores the broker credential and the snapshotter's token |
-| `tokens` | Deployment and ClusterIP Service | Signs in the seed's service accounts, because Felix issues tokens only in exchange for an IdP token ([felix#954](https://github.com/gabloe/felix/issues/954)) |
+| `tokens` | Deployment and ClusterIP Service | Signs in the seed's service accounts, because Felix issues tokens only in exchange for an IdP token ([felix#954](https://github.com/GetFelix/felix/issues/954)) |
 | `idp` | Deployment and Service, only with `devIdp.enabled` | The development sign-in page, for trying the chart out |
 
 [docs/self-hosting.md](../../../docs/self-hosting.md#kubernetes) has the

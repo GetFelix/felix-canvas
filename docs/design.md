@@ -1,6 +1,6 @@
 # Felix Canvas design
 
-A multiplayer drawing canvas whose entire backend is [Felix](https://github.com/gabloe/felix):
+A multiplayer drawing canvas whose entire backend is [Felix](https://github.com/GetFelix/felix):
 shapes, cursors, presence, history and snapshots in Felix streams and caches,
 reached over one authenticated QUIC connection.
 
@@ -534,7 +534,7 @@ against the schema and everything else dropped, links are limited to `http`,
 `https` and `mailto`, and they open with `noopener`.
 
 **The snapshotter startup wait.** Until
-[felix#962](https://github.com/gabloe/felix/issues/962) is fixed, the
+[felix#962](https://github.com/GetFelix/felix/issues/962) is fixed, the
 snapshotter waits 30 seconds on startup so its predecessor's claims come back
 before newer records. Text raises the stakes of getting that wrong. A record
 the snapshotter skips loses one LWW write for shapes, but for text it strands
@@ -650,7 +650,7 @@ TTL.
 
 Felix expires a cache entry lazily: it is absent from the next read, but nothing
 is written when it lapses, so a watch never hears about it
-([felix#960](https://github.com/gabloe/felix/issues/960)). Each change on the
+([felix#960](https://github.com/GetFelix/felix/issues/960)). Each change on the
 watch carries its expiry, the gateway relays it as milliseconds remaining, and
 every browser drops an entry whose time has passed. The cache's own TTL still
 decides who appears in a fresh list.
@@ -810,7 +810,7 @@ assumed. Felix keeps a durable log forever unless the broker sets
 `FELIX_DURABLE_RETENTION_BYTES` or `FELIX_DURABLE_RETENTION_SECONDS`, and those
 apply to every stream on the broker. A retention policy set on one stream in the
 control plane is stored and ignored
-([felix#964](https://github.com/gabloe/felix/issues/964)), so the 30-day window
+([felix#964](https://github.com/GetFelix/felix/issues/964)), so the 30-day window
 the data model once named is not something a deployment can actually set per
 room. With the defaults, history reaches every room's first change.
 

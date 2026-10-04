@@ -8,6 +8,7 @@ name: felix-canvas
 
 services:
   controlplane:
+    # Felix 0.6.0-preview is published under gabloe; later releases publish under getfelix.
     image: ghcr.io/gabloe/felix-controlplane:${FELIX_VERSION:-0.6.0-preview}
     environment:
       # The metadata lives in the control plane's own Raft log, so there is
@@ -42,7 +43,7 @@ services:
   # because Felix issues tokens only in exchange for an IdP token
   # (felix#954). It signs in anyone, so it has no published port.
   tokens:
-    image: ghcr.io/gabloe/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
+    image: ghcr.io/getfelix/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
     command: ["dev/idp.mjs"]
     environment:
       IDP_ISSUER: http://tokens:9400
@@ -53,7 +54,7 @@ services:
   # own provider is configured.
   idp:
     profiles: [dev-idp]
-    image: ghcr.io/gabloe/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
+    image: ghcr.io/getfelix/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
     command: ["dev/idp.mjs"]
     environment:
       IDP_ISSUER: ${CANVAS_OIDC_ISSUER}
@@ -66,7 +67,7 @@ services:
   # to bring your own. Also hands the state volume to the uid every other
   # canvas and Felix container runs as.
   certs:
-    image: ghcr.io/gabloe/felix-canvas:${CANVAS_VERSION:-0.1.0}
+    image: ghcr.io/getfelix/felix-canvas:${CANVAS_VERSION:-0.1.0}
     user: "0:0"
     entrypoint: ["sh", "-c"]
     command:
@@ -84,7 +85,7 @@ services:
       - state:/state
 
   seed:
-    image: ghcr.io/gabloe/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
+    image: ghcr.io/getfelix/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
     command: ["dev/seed.mjs"]
     environment:
       CANVAS_FELIX_BOOTSTRAP_TOKEN: ${FELIX_BOOTSTRAP_TOKEN}
@@ -109,6 +110,7 @@ services:
         condition: service_completed_successfully
 
   broker:
+    # Felix 0.6.0-preview is published under gabloe; later releases publish under getfelix.
     image: ghcr.io/gabloe/felix-broker:${FELIX_VERSION:-0.6.0-preview}
     environment:
       FELIX_CONTROLPLANE_URL: http://controlplane:8443
@@ -141,7 +143,7 @@ services:
     restart: unless-stopped
 
   snapshotter:
-    image: ghcr.io/gabloe/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
+    image: ghcr.io/getfelix/felix-canvas-snapshotter:${CANVAS_VERSION:-0.1.0}
     environment: &felix-client
       CANVAS_FELIX_BROKERS: broker:5000
       CANVAS_FELIX_SERVER_NAME: broker
@@ -158,7 +160,7 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: ghcr.io/gabloe/felix-canvas:${CANVAS_VERSION:-0.1.0}
+    image: ghcr.io/getfelix/felix-canvas:${CANVAS_VERSION:-0.1.0}
     environment:
       <<: *felix-client
       CANVAS_FELIX_CONTROL_PLANE: http://controlplane:8443
