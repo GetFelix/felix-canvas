@@ -11,6 +11,11 @@ version it was tested against.
 
 ## [Unreleased]
 
+### Changed
+
+- `dev/up.sh` and the failover test run on Docker or Podman, and the docs show
+  the Podman commands.
+
 ## [0.2.0] - 2026-10-04
 
 Tested against Felix 0.6.0-preview.2, which the install now pins. Felix images

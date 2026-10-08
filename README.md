@@ -64,9 +64,10 @@ and a room keeps working when its broker dies through Felix
 
 ## Quick start
 
-You need Docker with Compose 2.20 or later. Download the compose install from
-the [latest release](https://github.com/GetFelix/felix-canvas/releases/latest)
-and start it:
+You need Docker or Podman, with Compose 2.20 or later. Download the compose
+install from the
+[latest release](https://github.com/GetFelix/felix-canvas/releases/latest) and
+start it:
 
 ```bash
 curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.2.0/felix-canvas-compose-0.2.0.tar.gz | tar xz
@@ -74,6 +75,11 @@ cd felix-canvas-compose-0.2.0
 # change FELIX_BOOTSTRAP_TOKEN and FELIX_RAFT_PEER_TOKEN in .env first
 docker compose up -d
 ```
+
+With Podman, run `podman compose up -d` instead (after `podman machine start`
+on macOS). [Docker or
+Podman](https://getfelix.github.io/felix/getting-started/containers/) covers
+the differences.
 
 Open <http://localhost:8787> in two windows, continue as `ana` or `ben`, and
 draw. `?room=studio` opens a second room that only `ana` may open. The

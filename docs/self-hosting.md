@@ -40,8 +40,8 @@ cosign verify ghcr.io/getfelix/charts/felix-canvas:0.2.0 \
 
 ## Install with Docker Compose
 
-You need Docker with Compose 2.20 or later, about 2 cores and 2 GB of memory,
-and disk for the drawings: a fresh install with two rooms takes about 100 MB,
+You need Docker or Podman with Compose 2.20 or later, about 2 cores and 2 GB
+of memory, and disk for the drawings: a fresh install with two rooms takes about 100 MB,
 because the broker reserves a segment up front for each log a room writes to
 (see `FELIX_SEGMENT_BYTES`).
 
@@ -76,6 +76,25 @@ your own machine and nowhere else. The next section replaces it.
 `docker compose logs -f gateway` shows the gateway, and
 `docker compose ps` shows what is healthy. The canvas is ready once the
 gateway is.
+
+### With Podman
+
+Every `docker` command here works as `podman`, `docker compose` as
+`podman compose`. Where they differ:
+
+- `podman compose` runs a compose provider. Use `docker-compose` 2.20 or
+  later as the provider; the compose files are tested with it, not with
+  `podman-compose`.
+- On macOS, `podman machine start` first.
+- Rootless Podman on Linux cannot publish ports below 1024, which matters for
+  the Caddy proxy's 80 and 443 under [TLS](#tls). Lower
+  `net.ipv4.ip_unprivileged_port_start` or run that proxy rootful.
+- On SELinux hosts, bind mounts need a relabel: `ro,z` on the
+  `dex-config.yaml` mount in `dex.yaml`, and `-v "$PWD":/out:Z` in the backup
+  commands.
+
+[Docker or Podman](https://getfelix.github.io/felix/getting-started/containers/)
+in the Felix docs has the rest.
 
 ## Your own identity provider
 
@@ -169,7 +188,7 @@ on secure origins. Put a reverse proxy in front of the gateway. With
 ```yaml
 services:
   proxy:
-    image: caddy:2
+    image: docker.io/library/caddy:2
     command: caddy reverse-proxy --from canvas.example.com --to gateway:8787
     ports: ["80:80", "443:443"]
     volumes: [caddy-data:/data]
@@ -212,7 +231,7 @@ is stopped is the whole of its state:
 docker compose stop gateway snapshotter broker controlplane
 docker run --rm -v "$PWD":/out \
   -v felix-canvas_controlplane-data:/backup/controlplane -v felix-canvas_felix-data:/backup/broker \
-  debian:trixie-slim tar czf /out/felix-backup.tar.gz -C /backup controlplane broker
+  docker.io/library/debian:trixie-slim tar czf /out/felix-backup.tar.gz -C /backup controlplane broker
 docker compose up -d
 ```
 
@@ -222,7 +241,7 @@ To restore, start from empty volumes, untar both, and start everything:
 docker compose down -v
 docker run --rm -v "$PWD":/out \
   -v felix-canvas_controlplane-data:/backup/controlplane -v felix-canvas_felix-data:/backup/broker \
-  debian:trixie-slim tar xzf /out/felix-backup.tar.gz -C /backup
+  docker.io/library/debian:trixie-slim tar xzf /out/felix-backup.tar.gz -C /backup
 docker compose up -d
 ```
 
