@@ -78,7 +78,7 @@ docker compose up -d
 
 With Podman, run `podman compose up -d` instead (after `podman machine start`
 on macOS). [Docker or
-Podman](https://getfelix.github.io/felix/getting-started/containers/) covers
+Podman](https://docs.getfelix.dev/getting-started/containers/) covers
 the differences.
 
 Open <http://localhost:8787> in two windows, continue as `ana` or `ben`, and

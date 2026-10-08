@@ -93,7 +93,7 @@ Every `docker` command here works as `podman`, `docker compose` as
   `dex-config.yaml` mount in `dex.yaml`, and `-v "$PWD":/out:Z` in the backup
   commands.
 
-[Docker or Podman](https://getfelix.github.io/felix/getting-started/containers/)
+[Docker or Podman](https://docs.getfelix.dev/getting-started/containers/)
 in the Felix docs has the rest.
 
 ## Your own identity provider
