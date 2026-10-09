@@ -148,7 +148,7 @@ The seed then creates two rooms and decides who may open them:
 
 For each room it creates the two streams, the single-shard
 `canvas.seq.<room>`, `canvas.snap.<room>` and `canvas.members.<room>` caches (a
-prefix watch reads one shard, and the member list is one), and the role
+cache watch reads one shard, and the member list is one), and the role
 `role:room-<room>`, assigned to the members. It writes the broker's credential,
 the snapshotter's token and the broker's certificate to `dev/state/`. Every run
 starts from an empty log. Open <http://localhost:5173/?room=studio> as `ben` to

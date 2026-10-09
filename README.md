@@ -26,14 +26,16 @@ missed. Cursors go on an in-memory stream that drops new messages for a viewer
 that falls behind. Snapshots, the member list and per-session sequence numbers
 are [cache](https://github.com/GetFelix/felix/blob/main/docs/cache-on-log.md) keys
 and [counters](https://github.com/GetFelix/felix/blob/main/docs/projections.md#counters),
-the member list with a TTL and a prefix watch. A
+the member list with a TTL and a watch on the room's whole members cache. A
 [consumer group](https://github.com/GetFelix/felix/blob/main/docs/projections.md#queues-read-the-log-through-a-shared-cursor)
 feeds the snapshotter, and history is a read of the same stream from an earlier
 offset. Each browser gets a Felix token narrowed to one room through the
 control plane's
-[token exchange](https://github.com/GetFelix/felix/blob/main/docs/auth.md#control-plane-token-exchange-flow),
-and a room keeps working when its broker dies through Felix
+[token exchange](https://github.com/GetFelix/felix/blob/main/docs/auth.md#control-plane-token-exchange-flow).
+With three brokers and `CANVAS_REPLICAS=3` (or the Helm chart's
+`felix.replicas: 3`), a room keeps working when its broker dies through Felix
 [replication and failover](https://github.com/GetFelix/felix/blob/main/docs/semantics.md#failover).
+The compose install runs one broker, so it has no failover.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/sync-dark.png">
@@ -58,8 +60,9 @@ and a room keeps working when its broker dies through Felix
 - Sign-in through any OpenID Connect provider, with each room open only to the
   people you list. The broker enforces this, so a bug in the gateway cannot
   reach another room.
-- Editing carries on when the broker holding a room is killed, and no
-  acknowledged change is lost.
+- On three brokers with three replicas, editing carries on when the broker
+  holding a room is killed, and no acknowledged change is lost. The compose
+  install has one broker, so it does not.
 - Multi-arch images, a Docker Compose install and a Helm chart.
 
 ## Quick start
@@ -111,7 +114,7 @@ One room is one durable Felix stream plus a few cache keys.
 | Edit operations | Durable stream | `canvas.ops.<room>` |
 | Cursors and presence | Ephemeral stream | `canvas.presence.<room>` |
 | Compacted snapshot and its log offset | Cache key | `canvas.snap.<room>/latest` |
-| Who is in the room now | Cache keys with TTL | `canvas.members.<room>/<session>` |
+| Who is in the room now | Cache keys with TTL (the gateway scope file's `ttl_s`) | `canvas.members.<room>/<session>` |
 | Per-session sequence numbers | Counter | `canvas.seq.<room>/<session>` |
 | Who may open the room | Felix RBAC role | `role:room-<room>` |
 | Snapshot worker cursor | Consumer group | group `snapshotter` |
@@ -150,6 +153,7 @@ issue per piece of work.
 - [docs/self-hosting.md](docs/self-hosting.md): installing, your own IdP, TLS, backups, upgrades, Kubernetes and every setting.
 - [docs/development.md](docs/development.md): running it locally, the repository layout, the lockfile rule and CI.
 - [docs/performance.md](docs/performance.md): measured results for each target, with their conditions.
+- [Canvas](https://docs.getfelix.dev/built-on-felix/canvas/) in the Felix docs: how the canvas uses Felix.
 
 ## Contributing
 

@@ -196,7 +196,7 @@ for (const [room, members] of Object.entries(MEMBERS)) {
     });
   }
   // Caches per room, because Felix grants a cache as a whole. One shard
-  // each: a prefix watch reads a single shard, and the member list is one.
+  // each: a cache watch reads a single shard, and the member list is one.
   for (const [cache, display_name] of [
     [`canvas.seq.${room}`, `Op sequence per session in ${room}`],
     [`canvas.snap.${room}`, `Snapshot of ${room}`],
