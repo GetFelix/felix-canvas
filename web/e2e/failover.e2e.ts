@@ -29,6 +29,17 @@ async function owner(stream: string): Promise<string> {
   return shard.leader;
 }
 
+/** The engine `dev/up.sh` picks: CONTAINER_ENGINE, else Docker if it answers, else Podman. */
+function containerEngine(): string {
+  if (process.env.CONTAINER_ENGINE) return process.env.CONTAINER_ENGINE;
+  try {
+    execFileSync("docker", ["info"], { stdio: "ignore" });
+    return "docker";
+  } catch {
+    return "podman";
+  }
+}
+
 /** The container docker-compose.cluster.yml runs broker `node` in. */
 function container(node: string): string {
   return node === "broker-1" ? "felix-canvas-broker-1" : `felix-canvas-${node}-1`;
@@ -88,9 +99,10 @@ test("editing carries on when the broker that owns the room is killed", async ({
   });
 
   await ana.waitForTimeout(2000);
+  const engine = containerEngine();
   const killed = await owner("canvas.ops.lobby");
   const killedAt = Date.now();
-  execFileSync("docker", ["kill", container(killed)]);
+  execFileSync(engine, ["kill", container(killed)]);
   try {
     await test.step("another broker takes the room and edits are acknowledged again", async () => {
       await expect.poll(() => owner("canvas.ops.lobby"), { timeout: 60_000 }).not.toBe(killed);
@@ -160,6 +172,6 @@ test("editing carries on when the broker that owns the room is killed", async ({
     });
   } finally {
     editing = false;
-    execFileSync("docker", ["start", container(killed)]);
+    execFileSync(engine, ["start", container(killed)]);
   }
 });

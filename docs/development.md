@@ -28,7 +28,7 @@ Delete the Codespace when the work is merged.
 
 ## Running locally
 
-You need Docker, Rust 1.97 or later, and Node 24. The gateway is
+You need Docker or Podman, Rust 1.97 or later, and Node 24. The gateway is
 [felix-gateway](https://github.com/GetFelix/felix-gateway) 0.1.0; install it
 once:
 
@@ -46,7 +46,10 @@ cargo install --locked felix-gateway --version 0.1.0
    ```
 
    Each run starts from an empty log. `docker compose -f dev/docker-compose.yml down -v`
-   stops it.
+   stops it. `dev/up.sh` uses Docker when its daemon is running and Podman
+   otherwise (`podman machine start` first on macOS); set
+   `CONTAINER_ENGINE=podman` to choose, and use `podman compose` for the
+   commands here.
 
 2. Start the gateway, which listens on `127.0.0.1:8787`. It has no token of its
    own; each browser's sign-in is exchanged for one when it joins:
@@ -201,7 +204,8 @@ export GATEWAY_FELIX_BROKERS=$CANVAS_FELIX_BROKERS
 `GET /v1/placement/replication` on the control plane, with the broker's token
 from `dev/state/node.token`, names the broker that owns each room's op log.
 The failover test reads it there, kills that broker's container with
-`docker kill`, and starts it again at the end:
+`docker kill` (or `podman kill`, picked the same way as `dev/up.sh`), and
+starts it again at the end:
 
 ```bash
 CANVAS_FELIX_CLUSTER=1 npm run test:e2e -w @felix-canvas/web -- failover
@@ -221,6 +225,8 @@ docker build -f docker/gateway.Dockerfile -t ghcr.io/getfelix/felix-canvas:dev .
 docker build -f docker/snapshotter.Dockerfile -t ghcr.io/getfelix/felix-canvas-snapshotter:dev .
 CANVAS_VERSION=dev docker compose -f deploy/compose/docker-compose.yml up -d
 ```
+
+With Podman, `podman build` and `podman compose` take the same arguments.
 
 The gateway image is `ghcr.io/getfelix/felix-gateway` with the built page in
 `GATEWAY_WEB_DIR` and the canvas's scope file, so the install needs no separate
