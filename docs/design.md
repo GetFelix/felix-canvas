@@ -187,7 +187,7 @@ segment names a room.
 | Cursors and presence | Ephemeral stream | `canvas.presence.<room>` | None, at-most-once by design |
 | Compacted snapshot | Cache key | `canvas.snap.<room>` / `latest` | Log-backed, survives restart |
 | Snapshot's log position | Same cache value | stored inside the snapshot record | Written atomically with the snapshot |
-| Who is in the room now | Cache keys with TTL | `canvas.members.<room>` / `<session>` | TTL 30 s, refreshed by heartbeat |
+| Who is in the room now | Cache keys with TTL | `canvas.members.<room>` / `<session>` | TTL 30 s from the gateway scope file's `ttl_s`, refreshed by heartbeat |
 | Op sequence per session | Counter | `canvas.seq.<room>` / `<session>` | Log-backed |
 | Who may open the room | Felix RBAC role | `role:room-<room>` | Control plane store |
 | Snapshot worker cursor | Consumer group | group `snapshotter` | Replicated with the shard |
@@ -637,12 +637,14 @@ it occupies. So the presence stream is ephemeral, runs with
 
 - **Coalesce at the client.** Sample pointer moves at render rate and publish at most one position per frame.
 - **Never let presence share a queue with edits.** Separate streams mean separate per-subscriber queues.
-- **Membership lives in the cache, not the stream.** One retained watch on the room's key prefix, instead of inferring who is present from a window of cursor traffic. Felix has no prefix `cache_get`, but a retained prefix watch is better: it starts with every current entry and then delivers each change, so the list stays live without polling.
+- **Membership lives in the cache, not the stream.** One retained watch on the room's own members cache, instead of inferring who is present from a window of cursor traffic. Each room has its own cache, so watching the whole of it is the member list. The watch starts with every current entry and then delivers each change, so the list stays live without polling.
 
 Membership uses TTL as a liveness mechanism: each session writes
-key `<session>` of `canvas.members.<room>` with a 30-second TTL and refreshes every 10
-seconds. A client that vanishes without a goodbye stops refreshing and expires,
-which matters, because a browser closing a laptop lid sends no goodbye.
+key `<session>` of `canvas.members.<room>` and refreshes it every 10 seconds.
+The gateway puts each write with the `members` cache's `ttl_s` from its scope
+file, 30 seconds; the cache itself is created without a TTL. A client that
+vanishes without a goodbye stops refreshing and expires, which matters, because
+a browser closing a laptop lid sends no goodbye.
 
 The cost is that a crashed session lingers in the member list for up to 30
 seconds. That is the right trade for a presence indicator and the wrong trade for
@@ -654,8 +656,8 @@ Felix expires a cache entry lazily: it is absent from the next read, but nothing
 is written when it lapses, so a watch never hears about it
 ([felix#960](https://github.com/GetFelix/felix/issues/960)). Each change on the
 watch carries its expiry, the gateway relays it as milliseconds remaining, and
-every browser drops an entry whose time has passed. The cache's own TTL still
-decides who appears in a fresh list.
+every browser drops an entry whose time has passed. The TTL stored with each
+entry still decides who appears in a fresh list.
 
 The cursor feed and the member list answer different questions. The member list
 says who is in the room; cursor traffic says who is doing something. A member
@@ -866,9 +868,12 @@ so a silent tail loss is found within a few seconds.
 
 ### Losing the owning broker
 
-Each room's op log, presence stream and caches are replicated to three brokers,
-and the op log and caches use `Quorum` consistency, so an acknowledgement means
-two of the three hold the change. When the broker that owns the room stops,
+This needs three brokers and `CANVAS_REPLICAS=3` (the Helm chart's
+`felix.replicas: 3`, or `dev/up.sh --cluster`). The default compose install
+runs one broker with one replica, so losing it stops the room until it comes
+back. With three, each room's op log, presence stream and caches are replicated
+to three brokers, and the op log and caches use `Quorum` consistency, so an
+acknowledgement means two of the three hold the change. When the broker that owns the room stops,
 the control plane promotes a replica that holds every acknowledged record.
 
 Nothing in the canvas knows which broker that is. The gateway gives each
