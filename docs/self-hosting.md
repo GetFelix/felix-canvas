@@ -189,8 +189,10 @@ The canvas keeps the gateway's rates, 50 writes a second per session and 100
 per person, and paces its own writes below them. It turns off the cap of 32
 sessions per client address, because behind Caddy or an ingress every browser
 comes from the proxy's address, and it lets an op carry up to 256 KiB so a
-long pen stroke fits. Each person may still hold 8 sessions at once: one per open
-tab, and a second while that tab's history timeline is open.
+long pen stroke fits. Each person may hold 16 sessions at once rather than the
+gateway's 8: a tab holds one, and a second while its history timeline is
+open, and the gateway keeps a session whose network vanished, such as a laptop
+going to sleep, until TCP gives up on it.
 
 ## Self-service rooms
 

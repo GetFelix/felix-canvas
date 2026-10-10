@@ -10,8 +10,13 @@ allow_throttle = true
 [limits]
 # The compose install with rooms.yaml and the chart's ingress put a proxy in
 # front of the gateway, so every browser would share the proxy's address and
-# a per-address cap would limit the whole install. The per-person cap stays.
+# a per-address cap would limit the whole install.
 sessions_per_ip = 0
+# A tab holds one session, and a second while its history timeline is open.
+# The gateway keeps a session whose network vanished (a laptop sleeping or
+# changing networks) until TCP gives up, so the default of 8 leaves little
+# room for those beside a few tabs.
+sessions_per_principal = 16
 
 [scope]
 field = "room"

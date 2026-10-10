@@ -17,11 +17,14 @@ const token = (name: string) =>
 // within a test's time.
 function e2eScopeFile(): string {
   const scope = readFileSync(`${root}deploy/scope.toml`, "utf8");
-  if (!scope.includes("ttl_s = 30")) throw new Error("deploy/scope.toml has no ttl_s = 30");
+  for (const line of ["ttl_s = 30", "sessions_per_principal = 16"]) {
+    if (!scope.includes(line)) throw new Error(`deploy/scope.toml has no ${line}`);
+  }
   mkdirSync(state, { recursive: true });
-  // The tests' Writer stands in for many people from one session, at up to
-  // 300 writes a second, so the gateway's write rates are off here. The
-  // browsers keep their own pacing, and the installed-image runs keep the rates.
+  // The tests' Writers stand in for many people, all signed in as ana, at up
+  // to 300 writes a second each, so the gateway's write rates and per-person
+  // session cap are off here. The browsers keep their own pacing, and the
+  // installed-image runs keep the limits.
   const unlimited = [
     "[limits.session]",
     "writes_per_s = 0",
@@ -30,10 +33,10 @@ function e2eScopeFile(): string {
     "writes_per_s = 0",
     "bytes_per_s = 0",
   ].join("\n");
-  writeFileSync(
-    `${state}/scope.e2e.toml`,
-    `${scope.replace("ttl_s = 30", "ttl_s = 6")}\n${unlimited}\n`,
-  );
+  const local = scope
+    .replace("ttl_s = 30", "ttl_s = 6")
+    .replace("sessions_per_principal = 16", "sessions_per_principal = 0");
+  writeFileSync(`${state}/scope.e2e.toml`, `${local}\n${unlimited}\n`);
   return `${state}/scope.e2e.toml`;
 }
 
