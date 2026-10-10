@@ -30,7 +30,8 @@ version it was tested against.
   40, a drag waiting on that budget folding into one op per shape, and
   presence at most 25 a second instead of 60. The scope file turns off the
   gateway's per-address session cap, which behind Caddy or an ingress would
-  count every browser as the proxy, and lets an op carry up to 256 KiB. A
+  count every browser as the proxy, allows 16 sessions per person instead of
+  8, and lets an op carry up to 256 KiB. A
   chart install that sets its own `gateway.scope` should add the same
   `[limits]` settings.
 - Built on Felix 0.6.0-preview.4: the snapshotter uses `felix-client`
