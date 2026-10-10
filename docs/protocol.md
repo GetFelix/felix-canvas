@@ -24,7 +24,8 @@ resources:
 Every room has its own streams and caches because Felix authorizes a cache as
 a whole, never one key of it. The file also sets `allow_throttle`, for the
 slow-link switch in the toolbar, and the gateway's write limits: its default
-rates, no per-address session cap, and ops of up to 256 KiB.
+rates, 16 sessions per person, no per-address session cap, and ops of up to
+256 KiB.
 [self-hosting.md](self-hosting.md#rooms-and-members) says why.
 
 ## Joining
