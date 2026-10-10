@@ -24,6 +24,10 @@ version it was tested against.
 
 ### Changed
 
+- Built on Felix 0.6.0-preview.4: the snapshotter uses `felix-client`
+  0.6.0-preview.4, and the dev stack, the compose install and the chart's CI
+  run the 0.6.0-preview.4 images. The gateway stays on felix-gateway 0.1.0,
+  which negotiates capabilities with the newer broker.
 - The seed also creates the `canvas.rooms` cache, and the snapshotter folds
   every room listed there besides `CANVAS_ROOMS`, starting and stopping as
   rooms are created and deleted, without a restart (#79).
