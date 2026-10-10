@@ -1,17 +1,16 @@
-import {
-  generateKeyPairSync,
-  randomUUID,
-  sign,
-  type JsonWebKey,
-  type KeyObject,
-} from "node:crypto";
+import { generateKeyPairSync, randomUUID, sign, type KeyObject } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { roomsApi } from "../src/rooms/http.js";
-import { IdTokenVerifier, SignInError, principalOf } from "../src/rooms/idtoken.js";
+import {
+  IdTokenVerifier,
+  SignInError,
+  principalOf,
+  type JsonWebKey,
+} from "../src/rooms/idtoken.js";
 import type { RoomRecord } from "../src/rooms/record.js";
 import { Rooms, type Provisioner, type Registry } from "../src/rooms/service.js";
 
