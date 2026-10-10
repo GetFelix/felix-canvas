@@ -237,6 +237,16 @@ describe("Replica", () => {
     expect(replica.view().shapes.get(1n)?.fields).toMatchObject({ x: 2, y: 3 });
   });
 
+  it("folds a patch past unsent edits to other shapes, but not past a sent one", () => {
+    const replica = new Replica(me);
+    replica.edit(move(me, 0, 1n, 1));
+    replica.edit(move(me, 1, 2n, 1));
+    expect(replica.amend("patch", 1n, { x: 5 })).toBe(true);
+    replica.pending[1]!.sentAt = 0;
+    expect(replica.amend("patch", 1n, { x: 6 })).toBe(false);
+    expect(replica.pending.map(({ op }) => op.fields)).toEqual([{ x: 5 }, { x: 1 }]);
+  });
+
   it("skips records that are not ops", () => {
     const replica = new Replica(me);
     replica.deliver(0, 0, new TextEncoder().encode("not an op"));

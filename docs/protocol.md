@@ -1,9 +1,9 @@
 # How the canvas talks to the gateway
 
 The canvas runs [felix-gateway](https://github.com/GetFelix/felix-gateway)
-0.1.0 between browsers and Felix. Its
-[protocol](https://github.com/GetFelix/felix-gateway/blob/v0.1.0/docs/protocol.md)
-and [configuration](https://github.com/GetFelix/felix-gateway/blob/v0.1.0/docs/configuration.md)
+0.3.0 between browsers and Felix. Its
+[protocol](https://github.com/GetFelix/felix-gateway/blob/v0.3.0/docs/protocol.md)
+and [configuration](https://github.com/GetFelix/felix-gateway/blob/v0.3.0/docs/configuration.md)
 are documented there. This page covers what is specific to the canvas: its
 scope file, the order it joins and reads history in, how it finds a loss, and
 what its payloads hold.
@@ -23,7 +23,9 @@ resources:
 
 Every room has its own streams and caches because Felix authorizes a cache as
 a whole, never one key of it. The file also sets `allow_throttle`, for the
-slow-link switch in the toolbar.
+slow-link switch in the toolbar, and the gateway's write limits: its default
+rates, no per-address session cap, and ops of up to 256 KiB.
+[self-hosting.md](self-hosting.md#rooms-and-members) says why.
 
 ## Joining
 
@@ -150,7 +152,7 @@ leaves it out.
 ## Presence payload
 
 Records on `presence` are MessagePack maps, published fire-and-forget at most
-once a frame while the pointer or selection moves, and every 3 seconds
+every 40 ms while the pointer or selection moves, and every 3 seconds
 otherwise. A session not heard from for 10 seconds is treated as gone.
 
 | Key | MessagePack type | Meaning |
@@ -166,8 +168,9 @@ otherwise. A session not heard from for 10 seconds is treated as gone.
 | `txt` | array, optional | While the session edits text: `[shape, anchor, head]`, the shape id as bin 16 and the selection's two ends as encoded Yjs relative positions (`Y.encodeRelativePosition`), so a caret stays on its character while others type before it |
 
 The canvas samples the pointer once per animation frame and sends at most one
-message per 16 ms, so a 120 Hz screen still sends 60 a second. Cursors on other
-screens are eased toward each new position with a critically damped spring.
+message per 40 ms, 25 a second, which leaves room under the gateway's
+per-session write rate for ops. Cursors on other screens are eased toward each
+new position with a critically damped spring, so they still move smoothly.
 
 ## Member payload
 

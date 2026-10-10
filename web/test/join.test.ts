@@ -84,6 +84,23 @@ describe("joining a room", () => {
   });
 });
 
+describe("pacing writes", () => {
+  it("folds a drag into one unsent op while the write budget is spent", async () => {
+    const room = new Room();
+    room.write(1);
+    const { session } = join(room);
+    await until(() => session.caughtUp);
+
+    for (let x = 1; x <= 200; x++) expect(session.submit("patch", 1n, { x })).toBe(true);
+    await until(() => session.replica.pending.length === 0);
+
+    // The burst of 40, then the rest folded into the op that waited.
+    const mine = room.log.map((bytes) => decodeOp(bytes)).filter((op) => op.sid === session.sid);
+    expect(mine.length).toBeLessThan(45);
+    expect(session.replica.confirmed.shapes.get(1n)?.fields.x).toBe(200);
+  });
+});
+
 describe("a refused join", () => {
   it("stops the session instead of reconnecting", async () => {
     let opened = 0;

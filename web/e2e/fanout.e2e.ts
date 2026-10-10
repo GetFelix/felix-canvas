@@ -13,7 +13,7 @@ const VIEWERS = Number(process.env.CANVAS_FANOUT_VIEWERS ?? 0);
 test.skip(!VIEWERS, "set CANVAS_FANOUT_VIEWERS to measure fanout");
 test.afterEach(leaveAll);
 
-/** Edits per phase, one every 20 ms. */
+/** Edits per phase, one every 50 ms: the page publishes at most 20 ops a second. */
 const EDITS = Number(process.env.CANVAS_FANOUT_EDITS ?? 300);
 /** Each round measures 1 viewer, then the full count, so drift over the run hits both alike. */
 const ROUNDS = 3;
@@ -59,7 +59,7 @@ async function startViewers(count: number): Promise<{ stop: () => Promise<Summar
 async function edit(page: Page): Promise<{ acks: number[]; saves: number[] }> {
   for (let i = 0; i < EDITS; i++) {
     await page.keyboard.press(i % 2 ? "ArrowLeft" : "ArrowRight");
-    await page.waitForTimeout(20);
+    await page.waitForTimeout(50);
   }
   await expect.poll(async () => (await read(page)).pending).toBe(0);
   return page.evaluate(

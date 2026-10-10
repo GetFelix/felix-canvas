@@ -42,7 +42,7 @@ async function editUnderLoad(ana: Page): Promise<number[]> {
   })();
   for (let i = 0; i < EDITS; i++) {
     await ana.keyboard.press(i % 2 ? "ArrowLeft" : "ArrowRight");
-    await ana.waitForTimeout(20);
+    await ana.waitForTimeout(50);
   }
   await load;
   writer.close();

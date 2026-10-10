@@ -37,8 +37,11 @@ import { BOX_PADDING, fontsLoaded, layout, lineTexts } from "./textlayout.js";
 
 /** Idle sessions still announce themselves this often, so peers know they are here. */
 const HEARTBEAT_MS = 3000;
-/** At most one presence message a frame, and no more than 60 a second on faster screens. */
-const PRESENCE_GAP_MS = 16;
+/**
+ * At most 25 presence messages a second. Peers ease cursors between them, and
+ * the gateway's per-session write rate (50 a second) must also fit the ops.
+ */
+const PRESENCE_GAP_MS = 40;
 
 function gatewayUrl(): string {
   const override = new URLSearchParams(location.search).get("gateway");
