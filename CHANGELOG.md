@@ -20,13 +20,13 @@ version it was tested against.
   the Felix admin credential; the compose install adds it with `rooms.yaml`
   and `CANVAS_INVITE_SECRET`, and the chart with `selfService.enabled`.
   `CANVAS_ROOMS_PER_USER`, `CANVAS_MEMBERS_PER_ROOM` and
-  `CANVAS_INVITES_PER_ROOM` set the limits (#PR).
+  `CANVAS_INVITES_PER_ROOM` set the limits (#79).
 
 ### Changed
 
 - The seed also creates the `canvas.rooms` cache, and the snapshotter folds
   every room listed there besides `CANVAS_ROOMS`, starting and stopping as
-  rooms are created and deleted, without a restart (#PR).
+  rooms are created and deleted, without a restart (#79).
 
 - `dev/up.sh` and the failover test run on Docker or Podman, and the docs show
   the Podman commands.
