@@ -48,6 +48,24 @@
         <p id="access-who" class="access-who"></p>
       </section>
 
+      <section
+        id="invite"
+        class="card access invite-card"
+        role="dialog"
+        aria-labelledby="invite-title"
+        aria-describedby="invite-detail"
+        hidden
+      >
+        <img src="/felix-mark.png" alt="" width="40" height="40" />
+        <h1 id="invite-title"></h1>
+        <p id="invite-detail"></p>
+        <div class="access-actions">
+          <button id="invite-join" class="button primary">Join room</button>
+          <a id="invite-lobby" class="button" href="?room=lobby">Go to the lobby</a>
+        </div>
+        <p id="invite-who" class="access-who"></p>
+      </section>
+
       <section id="empty" class="card empty" hidden>
         <img src="/felix-mark.png" alt="" width="48" height="48" />
         <h1>Start drawing</h1>
@@ -79,12 +97,34 @@
         >
           <img src="/felix-mark.png" alt="Felix" width="24" height="24" />
         </button>
-        <div class="room-name">
+        <button id="rooms-button" class="room-name" aria-controls="rooms" disabled>
           <span id="workspace" class="workspace"></span>
           <span class="slash" aria-hidden="true">/</span>
           <span id="room" class="room"></span>
-        </div>
+          <i id="rooms-chevron" class="chevron" data-lucide="chevron-down" hidden></i>
+        </button>
       </header>
+
+      <section id="rooms" class="popover rooms" role="dialog" aria-labelledby="rooms-title" hidden>
+        <header>
+          <span id="rooms-title">Your rooms</span>
+          <span id="rooms-count" class="mono muted"></span>
+        </header>
+        <ul id="rooms-list" class="rooms-list"></ul>
+        <p id="rooms-empty" class="note" hidden>Rooms you make or are invited to show up here.</p>
+        <form id="rooms-new" class="rooms-new">
+          <input
+            id="rooms-new-name"
+            maxlength="60"
+            placeholder="Name a new room"
+            aria-label="Room name"
+            autocomplete="off"
+          />
+          <button id="rooms-create" class="button" type="submit">
+            <i data-lucide="plus"></i><span>Create</span>
+          </button>
+        </form>
+      </section>
 
       <div id="menu" class="menu" role="menu" hidden>
         <div class="menu-label">Theme</div>
@@ -171,6 +211,51 @@
         <ul id="people-list" class="people-list"></ul>
         <p class="note">Click your name to change it. Everyone here sees it on your cursor.</p>
       </section>
+
+      <section
+        id="share-panel"
+        class="popover share-panel"
+        role="dialog"
+        aria-labelledby="share-title"
+        hidden
+      >
+        <header id="share-title">Share this room</header>
+        <div id="share-invites">
+          <p class="note">Anyone with an invite link can join until it expires or you revoke it.</p>
+          <ul id="invite-list" class="invite-list"></ul>
+          <button id="invite-create" class="button" type="button">
+            <i data-lucide="link"></i><span>Create invite link</span>
+          </button>
+        </div>
+        <div id="share-member" hidden>
+          <p class="note">Only people the owner invites can open this room.</p>
+          <button id="room-copy" class="button" type="button">
+            <i data-lucide="link"></i><span>Copy link to this room</span>
+          </button>
+        </div>
+        <div class="share-label">
+          <span>People with access</span>
+          <span id="access-count" class="mono muted"></span>
+        </div>
+        <ul id="access-list" class="people-list access-list"></ul>
+        <div class="share-footer">
+          <button id="room-leave" class="button" type="button" hidden>
+            <i data-lucide="log-out"></i><span>Leave room</span>
+          </button>
+          <button id="room-delete" class="button danger" type="button" hidden>
+            <i data-lucide="trash-2"></i><span>Delete room</span>
+          </button>
+        </div>
+      </section>
+
+      <dialog id="delete-room" class="dialog confirm" aria-labelledby="delete-room-title">
+        <h2 id="delete-room-title">Delete this room?</h2>
+        <p id="delete-room-detail"></p>
+        <div class="confirm-actions">
+          <button class="button" data-close>Cancel</button>
+          <button id="delete-room-confirm" class="button danger">Delete room</button>
+        </div>
+      </dialog>
 
       <section id="status" class="popover status" role="dialog" aria-label="Sync status" hidden>
         <header>

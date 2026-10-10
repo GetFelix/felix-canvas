@@ -82,11 +82,23 @@ export async function open(
     setup?: ((page: Page) => void) | undefined;
   } = {},
 ): Promise<Page> {
+  return openAt(browser, `/?room=${room}`, { user, setup });
+}
+
+/** Open `path` in a fresh context, signed in as {@link open} does. */
+export async function openAt(
+  browser: Browser,
+  path: string,
+  {
+    user = "ana",
+    setup,
+  }: { user?: string | undefined; setup?: ((page: Page) => void) | undefined } = {},
+): Promise<Page> {
   const context = await browser.newContext();
   opened.push(context);
   const page = await context.newPage();
   setup?.(page);
-  await page.goto(`/?room=${room}`);
+  await page.goto(path);
   const password = process.env.CANVAS_E2E_PASSWORD;
   if (password) {
     await page.locator("input[name=login]").fill(`${user}@example.com`);
@@ -97,7 +109,7 @@ export async function open(
     await page.getByRole("textbox", { name: "Name" }).fill(user);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
   }
-  await page.waitForURL(`**/?room=${room}`);
+  await page.waitForURL((url) => `${url.pathname}${url.search}` === path);
   return page;
 }
 

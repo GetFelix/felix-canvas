@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
-# The snapshotter. It also carries the seed (dev/seed.mjs) and the stand-in
-# identity provider (dev/idp.mjs), so a deployment runs them from this image:
-#   node dev/seed.mjs, node dev/idp.mjs
+# The snapshotter. It also carries the rooms service, the seed (dev/seed.mjs)
+# and the stand-in identity provider (dev/idp.mjs), so a deployment runs them
+# from this image:
+#   node snapshotter/dist/rooms-main.js, node dev/seed.mjs, node dev/idp.mjs
 # Build from the repository root: docker build -f docker/snapshotter.Dockerfile .
 
 FROM node:24-trixie-slim AS build

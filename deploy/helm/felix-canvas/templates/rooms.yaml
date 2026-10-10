@@ -1,0 +1,137 @@
+{{- if .Values.selfService.enabled }}
+{{- $fullname := include "canvas.fullname" . -}}
+{{- $name := printf "%s-rooms" $fullname -}}
+{{- $r := .Values.selfService -}}
+{{- $secret := default (printf "%s-invite-key" $fullname) $r.inviteSecret.name -}}
+{{- if not $r.inviteSecret.name }}
+{{- /* Made once and kept, so an upgrade does not stop every open invite link. */}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rooms
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  secret: {{ if $existing }}{{ index $existing.data "secret" }}{{ else }}{{ randAlphaNum 48 | b64enc }}{{ end }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rooms
+spec:
+  # The only writer of the room list, so never two at once.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "canvas.selector" (list . "rooms") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "canvas.selector" (list . "rooms") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      containers:
+        - name: rooms
+          image: {{ include "canvas.image" (list . .Values.snapshotter.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["snapshotter/dist/rooms-main.js"]
+          securityContext:
+            {{- include "canvas.securityContext" . | nindent 12 }}
+          env:
+            {{- include "canvas.felixEnv" (list . "CANVAS") | nindent 12 }}
+            - name: CANVAS_ROOMS_LISTEN
+              value: 0.0.0.0:8789
+            - name: CANVAS_FELIX_CONTROL_PLANE
+              value: {{ required "felix.controlPlaneUrl is required" .Values.felix.controlPlaneUrl | quote }}
+            - name: CANVAS_SERVICE_IDP
+              value: http://{{ $fullname }}-tokens:9400
+            - name: CANVAS_REPLICAS
+              value: {{ .Values.felix.replicas | quote }}
+            - name: CANVAS_OIDC_ISSUER
+              value: {{ include "canvas.issuer" . | quote }}
+            - name: CANVAS_OIDC_JWKS_URL
+              value: {{ .Values.devIdp.enabled | ternary (printf "http://%s-idp:9400/jwks.json" $fullname) .Values.oidc.jwksUrl | quote }}
+            - name: CANVAS_OIDC_CLIENT_ID
+              value: {{ .Values.oidc.clientId | quote }}
+            - name: CANVAS_OIDC_AUDIENCE
+              value: {{ .Values.oidc.audience | quote }}
+            - name: CANVAS_OIDC_SUBJECT_CLAIM
+              value: {{ .Values.oidc.subjectClaim | quote }}
+            - name: CANVAS_INVITE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: {{ if $r.inviteSecret.name }}{{ $r.inviteSecret.key }}{{ else }}secret{{ end }}
+            - name: CANVAS_ROOMS_PER_USER
+              value: {{ $r.roomsPerUser | quote }}
+            - name: CANVAS_MEMBERS_PER_ROOM
+              value: {{ $r.membersPerRoom | quote }}
+            - name: CANVAS_INVITES_PER_ROOM
+              value: {{ $r.invitesPerRoom | quote }}
+            - name: CANVAS_INVITE_TTL_HOURS
+              value: {{ $r.inviteTtlHours | quote }}
+            {{- with $r.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8789
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "canvas.caMount" . | nindent 12 }}
+      volumes:
+        {{- include "canvas.caVolume" . | nindent 8 }}
+      {{- with $r.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $r.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $r.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "canvas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rooms
+spec:
+  ports:
+    - name: http
+      port: 8789
+      targetPort: http
+  selector:
+    {{- include "canvas.selector" (list . "rooms") | nindent 4 }}
+{{- end }}

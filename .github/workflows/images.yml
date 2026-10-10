@@ -299,10 +299,17 @@ jobs:
             files: -f docker-compose.yml
             env_files: --env-file .env
             password: ""
+            tests: convergence
           - idp: Dex
             files: -f docker-compose.yml -f dex.yaml
             env_files: --env-file .env --env-file dex.env
             password: password
+            tests: convergence
+          - idp: self-service rooms
+            files: -f docker-compose.yml -f rooms.yaml
+            env_files: --env-file .env
+            password: ""
+            tests: convergence rooms
     permissions:
       contents: read
       packages: read
@@ -311,6 +318,8 @@ jobs:
         working-directory: deploy/compose
     env:
       COMPOSE: docker compose ${{ matrix.env_files }} ${{ matrix.files }}
+      # Only rooms.yaml reads it.
+      CANVAS_INVITE_SECRET: ci-only-invite-secret-0123456789
     steps:
       - uses: actions/checkout@v4
         with:
@@ -367,7 +376,7 @@ jobs:
         env:
           CANVAS_E2E_URL: http://127.0.0.1:8787
           CANVAS_E2E_PASSWORD: ${{ matrix.password }}
-        run: npx playwright test convergence
+        run: npx playwright test ${{ matrix.tests }}
 
       - name: Logs
         if: failure()

@@ -25,6 +25,7 @@ import {
   Slash,
   Square,
   Sun,
+  Trash2,
   Type,
   Underline,
   X,
@@ -99,6 +100,10 @@ export class Chrome {
   #notice: { version: string | null; until: number } | null = null;
   #toastTimer = 0;
   #account = { who: "", room: "" };
+  /** The room's name, for a room people made, which only has an id in Felix. */
+  #title: string | null = null;
+  /** Whether Share copies the room's address, rather than opening a panel. */
+  #shareCopies = true;
 
   constructor(session: Session, editor: Editor, name: string, person: bigint) {
     this.#person = person;
@@ -133,6 +138,7 @@ export class Chrome {
         Slash,
         Square,
         Sun,
+        Trash2,
         Underline,
         X,
       },
@@ -153,7 +159,9 @@ export class Chrome {
     this.#wireTooltips();
     this.#wireKeys();
     element("switch-account-item").addEventListener("click", () => this.onSignIn());
-    element("share").addEventListener("click", () => this.#share());
+    element("share").addEventListener("click", () => {
+      if (this.#shareCopies) void this.#share();
+    });
     element("zoom-in").addEventListener("click", () => editor.zoomBy(1.25, undefined, true));
     element("zoom-out").addEventListener("click", () => editor.zoomBy(0.8, undefined, true));
     element("zoom-reset").addEventListener("click", () =>
@@ -215,6 +223,20 @@ export class Chrome {
     element("account-label").textContent = who ? `Signed in as ${who}` : "";
   }
 
+  /** Show `title` as the room's name. */
+  setRoomTitle(title: string): void {
+    this.#title = title;
+    this.refresh();
+  }
+
+  /** Open `panel` from the Share button instead of copying the room's address. */
+  shareWith(panel: HTMLElement, onToggle: (open: boolean) => void): void {
+    this.#shareCopies = false;
+    element("share").dataset.tip = "Invite people and see who has access";
+    element("share").setAttribute("aria-haspopup", "dialog");
+    popover(element("share"), panel, onToggle);
+  }
+
   /** Update the room name, cards, chip and status numbers. */
   refresh(): void {
     const session = this.#session;
@@ -224,10 +246,11 @@ export class Chrome {
       return;
     }
     if (session.room) {
+      const name = this.#title ?? session.room.room;
       element("workspace").textContent = session.room.namespace;
-      element("room").textContent = session.room.room;
-      element("status-room").textContent = session.room.room;
-      document.title = `${session.room.room} · Felix Canvas`;
+      element("room").textContent = name;
+      element("status-room").textContent = name;
+      document.title = `${name} · Felix Canvas`;
     }
 
     if (session.connection === "reconnecting") this.#disconnectedAt ??= now;
@@ -716,7 +739,7 @@ export class Chrome {
 }
 
 /** Open and close `panel` from `trigger`, closing it on any click outside both. */
-function popover(
+export function popover(
   trigger: HTMLElement,
   panel: HTMLElement,
   onToggle: (open: boolean) => void,

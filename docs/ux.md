@@ -19,7 +19,7 @@ Five floating islands over a full-bleed canvas. No permanent side panels.
 
 | Position | Contents | Reference |
 |---|---|---|
-| Top left | Felix cat mark (24 px, opens the app menu), room name (click to rename), workspace as muted text before it | Figma's main menu sits on the logo |
+| Top left | Felix cat mark (24 px, opens the app menu), room name (click for your rooms, where people can make rooms), workspace as muted text before it | Figma's main menu sits on the logo |
 | Top right | Avatar stack, sync status chip, Share button (the only filled accent button on screen) | Figma, Miro |
 | Bottom centre | Tool bar, one row, 44 px tall | Figma UI3, FigJam, tldraw |
 | Bottom right | Zoom out, zoom percentage (click for menu: fit, 100%, selection), zoom in, minimap toggle | Miro's canvas controls |
@@ -147,6 +147,17 @@ In history mode text is read-only and shows as it was at the playhead, and caret
 - **People list**: clicking the avatar stack opens a 280 px popover titled "3 people here" (or "Just you here"): you first with your name editable in place (it starts as the name your account gives, and a new one is remembered for that account), then everyone else with a green dot and "Active", or "Away". Until follow exists, this is what the click does. Membership expiry (the 30 s TTL in the design) removes the avatar with a 200 ms shrink. Freeform announces joins and leaves ([Apple](https://support.apple.com/guide/freeform/collaborate-on-a-shared-board-frfm4e6e2c9a6/mac)); do that with a 2 s toast only while the room has fewer than ten people.
 - A "Hide cursors" toggle lives in the view menu, per user, as in Miro ([Miro](https://community.miro.com/ask-the-community-45/hide-collaborators-cursors-moved-18024)).
 
+## Rooms and invites
+
+Where the deployment lets people make rooms, three surfaces handle it. None of
+them uses an accent fill except the one action on the invite card.
+
+- **Your rooms**: the room name gets a chevron and opens a 300 px popover under it, titled "Your rooms" with "2 of 5 yours" in muted mono. Each row is the room's name in 550 weight over "Yours" or "Shared with you" and the number of people, with a check in the accent on the room you are in. Below a divider, a "Name a new room" field and a plain "Create" button; creating goes straight into the new room. At the limit the field says "Delete a room to make another". With no rooms: "Rooms you make or are invited to show up here."
+- **Share**: in a room people made, Share opens a 340 px popover, "Share this room", instead of copying the address. The owner sees one line about who can use a link, each open invite link as a read-only mono field with Copy and Revoke icon buttons and "Expires in 7 days" under it, and "Create invite link", which also copies the new link with a "Invite link copied" toast. Then "People with access" with "2 of 20" in mono, each person as an avatar initial and name, "Owner" or a small "Remove" button. Delete room sits at the bottom in `--bad` text and asks first in a 380 px dialog: "Delete this room?", what it costs, Cancel and Delete room. Anyone else sees the people, "Copy link to this room" and "Leave room".
+- **Invite card**: an invite link opens the canvas dimmed behind one card in the no-access card's style: the cat mark, "Join “Team sketch”", "Ana invited you to draw together. Everyone in the room sees the same canvas.", the accent "Join room" button, "Go to the lobby", and "Signed in as Ben". An expired or revoked link says "This invite link has expired" or "This invite link no longer works", "Ask whoever sent it for a new one.", with "Go to the lobby" as the one action. Someone already in the room goes straight in.
+
+A room's title stands in for its id in the room name, the tab title and the Sync panel. Toasts confirm each change in a few words: "Ben no longer has access", "That link no longer works".
+
 ## History scrubber
 
 History mode replaces the bottom tool bar with a full-width timeline (inset 12 px, 64 px tall). Entering it is 200 ms; the canvas keeps its zoom and position.
@@ -205,7 +216,7 @@ Define these on `:root`, with dark overrides under `prefers-color-scheme: dark` 
 - **Density**: 32 px tool buttons, 4 px gaps, 1 px dividers between tool groups (select and hand | shapes | pen and text | image).
 - **Type**: Inter Variable, 13 px default UI size, scale 11 / 12 / 13 / 15 / 20. Weights 450 body, 550 labels, 650 room name. JetBrains Mono Variable at 11 to 12 px with `font-variant-numeric: tabular-nums` for every offset, latency and count.
 - **Dark mode** is a first-class theme, not an inversion: the canvas is darker than panels, shape default stroke flips to near-white, and user-chosen shape colours keep their hue but shift lightness so they hold contrast, as Linear does by generating both themes from the same LCH inputs.
-- **Brand**: the cat mark appears once, top left, at 24 px inside a 32 px button. Use it again only on the empty-room state, the loading card and the no-access card. Accent is reserved for selection, focus rings, the playhead, the Share button, your own follow border, and the one action on a card that replaces the canvas.
+- **Brand**: the cat mark appears once, top left, at 24 px inside a 32 px button. Use it again only on the empty-room state, the loading card, the no-access card and the invite card. Accent is reserved for selection, focus rings, the playhead, the Share button, your own follow border, and the one action on a card that replaces the canvas.
 
 ## Motion
 

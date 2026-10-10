@@ -3,8 +3,9 @@ import { fileURLToPath } from "node:url";
 
 import { defineConfig, devices } from "@playwright/test";
 
-// The gateway, the snapshotter and the page run against the Felix stack
-// `dev/up.sh` started, with the snapshotter's token and the certificate it wrote.
+// The gateway, the snapshotter, the rooms service and the page run against
+// the Felix stack `dev/up.sh` started, with the snapshotter's token and the
+// certificate it wrote.
 // With CANVAS_E2E_URL the tests instead use an install already serving there.
 const installed = process.env.CANVAS_E2E_URL;
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -61,6 +62,20 @@ export default defineConfig({
           env: {
             CANVAS_FELIX_TOKEN: token("snapshotter"),
             CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem`,
+          },
+          reuseExistingServer: !process.env.CI,
+        },
+        {
+          // Built by the snapshotter's command above; web servers start in order.
+          command: "npm run rooms -w @felix-canvas/snapshotter",
+          cwd: root,
+          url: "http://127.0.0.1:8789/api/health",
+          env: {
+            CANVAS_FELIX_CONTROL_PLANE: "http://127.0.0.1:8443",
+            CANVAS_SERVICE_IDP: "http://127.0.0.1:9400",
+            CANVAS_FELIX_CA_FILE: `${state}/broker-cert.pem`,
+            CANVAS_INVITE_SECRET: "end-to-end-tests-only",
+            ...(process.env.CANVAS_FELIX_CLUSTER ? { CANVAS_REPLICAS: "3" } : {}),
           },
           reuseExistingServer: !process.env.CI,
         },

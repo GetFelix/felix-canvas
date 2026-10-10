@@ -1,8 +1,9 @@
 # Self-hosting Felix Canvas
 
 How to run Felix Canvas on your own machines: the compose install, signing in
-with your own identity provider, TLS, backups, upgrades, and every setting the
-gateway, the snapshotter and the seed read.
+with your own identity provider, rooms people make themselves, TLS, backups,
+upgrades, and every setting the gateway, the snapshotter, the rooms service and
+the seed read.
 
 ## What runs
 
@@ -12,10 +13,12 @@ gateway, the snapshotter and the seed read.
 | `snapshotter` | `ghcr.io/getfelix/felix-canvas-snapshotter` | No | Keeps each room's folded state in the Felix cache, so joining a busy room is fast |
 | `broker` | `ghcr.io/getfelix/felix-broker` | Yes, `felix-data` | Felix: every room's op log, snapshots, member list and counters |
 | `controlplane` | `ghcr.io/getfelix/felix-controlplane` | Yes, `controlplane-data` | Felix: the tenant, rooms, roles and token exchange, kept in its own Raft log |
-| `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and writes the broker's and snapshotter's tokens |
+| `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and the list self-service rooms are kept in, and writes the broker's and snapshotter's tokens |
 | `tokens` | the snapshotter image | No | Signs in the seed's service accounts; never published |
 | `certs` | the gateway image | Writes `state` | Makes the broker a TLS certificate on first start |
 | `idp` | the snapshotter image | No | The development sign-in page, while you try it out |
+| `rooms` | the snapshotter image | No | Only with `rooms.yaml`. Lets signed-in people create rooms and invite others; see [Self-service rooms](#self-service-rooms) |
+| `edge` | `docker.io/library/caddy` | No | Only with `rooms.yaml`. Serves the canvas in the gateway's place, sending `/api/` to `rooms` |
 
 The install pins Felix 0.6.0-preview.4.
 
@@ -171,11 +174,51 @@ Each room is two streams and three caches in Felix, one shard each:
 `canvas.seq.<room>`, `canvas.snap.<room>` and `canvas.members.<room>`.
 [design.md](design.md#authorization) explains why every room has its own.
 
+The snapshotter folds every room in `CANVAS_ROOMS`, and every room people
+created when [self-service rooms](#self-service-rooms) are on.
+
 The gateway learns those names from its scope file, `deploy/scope.toml`, which
 the image carries at `/etc/felix-gateway/scope.toml`. The seed creates the same
 names, so leave the file as it is unless you change both. felix-gateway's
 [configuration reference](https://github.com/GetFelix/felix-gateway/blob/v0.1.0/docs/configuration.md#the-scope-file)
 describes the format.
+
+## Self-service rooms
+
+With self-service rooms on, anyone who can sign in can create a room from the
+page, share an invite link, and manage the rooms they own: copy or revoke
+links, remove people, and delete the room. Someone who opens a link signs in,
+sees who invited them to which room, and joins. Rooms in `CANVAS_ROOMS` keep
+working as before beside them, managed by the seed.
+
+The rooms service does this. It holds the Felix admin credential, which it
+gets from the `tokens` provider as the seed does, so keep it on the internal
+network like the control plane; the page reaches it only at `/api/` on the
+canvas's own origin. [design.md](design.md#self-service-rooms) explains how it
+works.
+
+In the compose install, add `rooms.yaml` and set an invite secret in `.env`:
+
+```bash
+echo "CANVAS_INVITE_SECRET=$(openssl rand -hex 24)" >> .env
+docker compose -f docker-compose.yml -f rooms.yaml up -d
+```
+
+`rooms.yaml` adds the `rooms` service and an `edge` (Caddy, with
+`Caddyfile` beside it) that takes over `CANVAS_PORT` from the gateway and sends
+`/api/` to the rooms service and everything else to the gateway. It needs
+Compose 2.24.4 or later. Changing `CANVAS_INVITE_SECRET` stops every open
+invite link.
+
+Anyone your provider signs in can create rooms, so limit who that is at the
+provider, and set the limits below to what your deployment can hold. Each room
+costs what an operator room does: two streams and three caches, with a segment
+each on disk (see `FELIX_SEGMENT_BYTES`).
+
+A removed person cannot join the room again, but a session they already have
+open keeps working until its Felix token refreshes, which is
+`FELIX_TOKEN_TTL_SECONDS` (see [Felix gaps](#felix-gaps-this-works-around)).
+Deleting a room ends every session in it.
 
 ## TLS
 
@@ -199,7 +242,9 @@ volumes:
 
 and start with `-f docker-compose.yml -f tls.yaml`. The proxy must pass
 WebSocket upgrades on `/ws`, which Caddy does by default. Register
-`https://canvas.example.com/` as the redirect URI.
+`https://canvas.example.com/` as the redirect URI. With `rooms.yaml` as well,
+proxy to `edge:8787` instead of `gateway:8787`, so `/api/` reaches the rooms
+service.
 
 **The gateway and snapshotter to the broker.** QUIC is always TLS. On first
 start the `certs` service writes a self-signed certificate for the name
@@ -355,6 +400,14 @@ so every room is copied to three brokers and survives losing one.
 The snapshotter waits for its token on a first install and for the brokers
 after that, so it restarts a few times before it settles.
 
+`selfService.enabled: true` runs the rooms service as one more Deployment,
+makes a Secret `<release>-invite-key` with the invite secret on first install
+and keeps it, and adds `/api` to the gateway's ingress, routed to the rooms
+service. Without the chart's ingress, route `/api` on the canvas's host to the
+Service `<release>-rooms` port 8789 yourself. `selfService.inviteSecret` names
+a Secret of your own instead, and `selfService.roomsPerUser`,
+`membersPerRoom`, `invitesPerRoom` and `inviteTtlHours` set the limits.
+
 `gateway.scope` replaces the image's scope file with the TOML you give it,
 for instance a different member TTL: `--set-file gateway.scope=scope.toml`.
 
@@ -384,6 +437,8 @@ brokers scaled to zero so nothing is mid-write.
 | `COMPOSE_PROFILES` | `dev-idp` | `dev-idp` runs the development sign-in page. Empty once you use your own provider |
 | `CANVAS_DEV_USERS` | `ana,ben` | The names the development sign-in page offers |
 | `CANVAS_OIDC_*`, `CANVAS_ROOMS` | the development page | As for the gateway and the seed below |
+| `CANVAS_INVITE_SECRET` | empty | With `rooms.yaml`, required: as for the rooms service below |
+| `CANVAS_ROOMS_PER_USER`, `CANVAS_MEMBERS_PER_ROOM`, `CANVAS_INVITES_PER_ROOM`, `CANVAS_INVITE_TTL_HOURS` | `5`, `20`, `10`, `168` | With `rooms.yaml`: as for the rooms service below |
 | `CANVAS_TENANT`, `CANVAS_NAMESPACE` | `canvas`, `default` | Where the rooms live in Felix |
 | `CANVAS_VERSION` | the release | The canvas images' tag |
 | `FELIX_VERSION` | the release's Felix | The Felix images' tag |
@@ -422,7 +477,7 @@ the gateway's `GATEWAY_*` variables of the same names do, and:
 |---|---|---|
 | `CANVAS_FELIX_TOKEN` | required, or the file | Its own Felix token |
 | `CANVAS_FELIX_TOKEN_FILE` | unset | A file holding that token, read at start |
-| `CANVAS_ROOMS` | `lobby` | The rooms to snapshot, in the seed's format; only the names before `=` are read |
+| `CANVAS_ROOMS` | `lobby` | The rooms to snapshot, in the seed's format; only the names before `=` are read. Rooms people created are found in the `canvas.rooms` cache as they are made and deleted |
 | `CANVAS_SNAPSHOTTER_LISTEN` | `127.0.0.1:8788` (`0.0.0.0:8788` in the image) | Where it answers `GET /` with each room's `{"applied", "saved"}`: the last offset folded and the last one a stored snapshot holds |
 | `CANVAS_SNAPSHOT_EVERY_OPS` | `500` | Write a room's snapshot once this many records are folded but not saved |
 | `CANVAS_SNAPSHOT_EVERY_MS` | `30000` | Or once the oldest of them has waited this long |
@@ -430,6 +485,27 @@ the gateway's `GATEWAY_*` variables of the same names do, and:
 
 One snapshotter runs per deployment. Two would split each room's records
 between them and write wrong snapshots.
+
+### Rooms service
+
+`node snapshotter/dist/rooms-main.js` in the snapshotter image. It reads
+`CANVAS_FELIX_BROKERS`, `CANVAS_FELIX_SERVER_NAME`, `CANVAS_FELIX_CA_FILE`,
+`CANVAS_TENANT` and `CANVAS_NAMESPACE` as the snapshotter does,
+`CANVAS_FELIX_CONTROL_PLANE`, `CANVAS_SERVICE_IDP`, `CANVAS_REPLICAS` and the
+`CANVAS_OIDC_*` settings as the seed does, and:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CANVAS_INVITE_SECRET` | required, or the file | The key invite links are signed with, 16 characters or more |
+| `CANVAS_INVITE_SECRET_FILE` | unset | A file holding that key, read at start |
+| `CANVAS_ROOMS_LISTEN` | `127.0.0.1:8789` | Where it serves `/api/`. `GET /api/health` answers without a sign-in |
+| `CANVAS_ROOMS_PER_USER` | `5` | Rooms one person may own at once |
+| `CANVAS_MEMBERS_PER_ROOM` | `20` | People in one room, its owner included |
+| `CANVAS_INVITES_PER_ROOM` | `10` | Invite links one room may have open at once |
+| `CANVAS_INVITE_TTL_HOURS` | `168` | How long an invite link works |
+
+One rooms service runs per deployment. It is the only writer of the room list,
+so two would overwrite each other's changes.
 
 ### Seed
 
@@ -460,4 +536,5 @@ between them and write wrong snapshots.
 | `FELIX_TOKEN_TTL_SECONDS` of 30 days and a restart within it | A standalone broker reads its token once and stops working when it expires | [#955](https://github.com/GetFelix/felix/issues/955) |
 | `FELIX_ACK_ON_COMMIT=true` on the broker | Only an ack after the write carries the record's offset, and that is a broker-wide setting | [#956](https://github.com/GetFelix/felix/issues/956) |
 | `FELIX_SUB_QUEUE_BOUND=8192` on the broker | The writer queue is per connection, with one entry per subscription for each change, so the default of 64 loses changes on a busy connection | Not filed yet |
+| Removing someone from a room ends their open session only at its next token refresh | Felix cannot revoke a token it issued, and browser sessions share `FELIX_TOKEN_TTL_SECONDS` with the broker's credential | Not filed yet |
 | The compose file is written from Felix's environment reference | Felix's own compose docs still pin 0.5.0 | [#957](https://github.com/GetFelix/felix/issues/957) |

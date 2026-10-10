@@ -23,3 +23,4 @@ kubectl wait --for=condition=complete job -l app.kubernetes.io/component=seed --
 helm upgrade felix "$FELIX_CHART" -f felix-values.yaml --set broker.enabled=true --wait --timeout 10m
 kubectl rollout status deployment/felix-canvas-gateway --timeout 5m
 kubectl rollout status deployment/felix-canvas-snapshotter --timeout 5m
+kubectl rollout status deployment/felix-canvas-rooms --timeout 5m
