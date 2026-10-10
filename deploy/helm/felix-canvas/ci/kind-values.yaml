@@ -16,3 +16,5 @@ image:
   pullPolicy: Never
 devIdp:
   enabled: true
+selfService:
+  enabled: true

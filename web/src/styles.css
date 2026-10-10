@@ -939,6 +939,213 @@ input.person-name:focus {
   outline-offset: 2px;
 }
 
+/* Rooms: the list under the room name and the Share panel */
+
+.island .room-name {
+  gap: 6px;
+  min-width: 0;
+  padding: 0 6px 0 8px;
+}
+
+.island .room-name:disabled {
+  background: none;
+  cursor: default;
+}
+
+.room-name .chevron {
+  align-self: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+
+.rooms,
+.share-panel {
+  top: calc(var(--edge) + 50px);
+  padding: 12px 8px 8px;
+}
+
+.rooms {
+  left: var(--edge);
+  width: min(300px, calc(100vw - 2 * var(--edge)));
+}
+
+.share-panel {
+  right: var(--edge);
+  width: min(340px, calc(100vw - 2 * var(--edge)));
+}
+
+.rooms header,
+.share-panel > header,
+.share-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 6px 6px;
+  font-weight: 550;
+}
+
+.rooms-list,
+.invite-list {
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.room-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+  align-items: center;
+  padding: 6px;
+  border-radius: var(--radius-control);
+  text-decoration: none;
+  transition: background-color 100ms ease-out;
+}
+
+.room-item:hover {
+  background: var(--hover);
+}
+
+.room-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+
+.room-item-meta {
+  grid-row: 2;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.room-item .lucide {
+  grid-row: 1 / 3;
+  grid-column: 2;
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+}
+
+.rooms .note,
+.share-panel .note {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.rooms .note {
+  padding: 4px 6px;
+}
+
+.rooms-new {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.rooms-new input,
+.invite-url {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.rooms-new input:focus,
+.invite-url:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+#share-invites,
+#share-member {
+  margin-bottom: 8px;
+  padding: 0 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.invite-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 2px 2px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.invite-url {
+  height: 30px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.invite-expiry {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.access-list .avatar {
+  --peer: var(--text-muted);
+}
+
+.share-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 6px 2px;
+  border-top: 1px solid var(--border);
+}
+
+.button .lucide {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button.small {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.button.danger {
+  color: var(--bad);
+}
+
+.dialog.confirm {
+  width: min(380px, calc(100vw - 32px));
+  padding: 20px;
+}
+
+.confirm p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
 /* Cards over the canvas */
 
 .card {

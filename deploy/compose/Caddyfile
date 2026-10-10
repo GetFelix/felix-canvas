@@ -1,0 +1,14 @@
+# The edge in rooms.yaml: the rooms service's API and the gateway on one
+# origin. Caddy passes WebSocket upgrades on /ws as it is.
+{
+	admin off
+}
+
+:8787 {
+	handle /api/* {
+		reverse_proxy rooms:8789
+	}
+	handle {
+		reverse_proxy gateway:8787
+	}
+}

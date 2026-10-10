@@ -10,6 +10,7 @@ Felix Canvas on Kubernetes, installed next to a release of the
 | Seed | A Job per revision, with a Role that may write two Secrets | Creates the tenant, rooms and roles at every install and upgrade, and stores the broker credential and the snapshotter's token |
 | `tokens` | Deployment and ClusterIP Service | Signs in the seed's service accounts, because Felix issues tokens only in exchange for an IdP token ([felix#954](https://github.com/GetFelix/felix/issues/954)) |
 | `idp` | Deployment and Service, only with `devIdp.enabled` | The development sign-in page, for trying the chart out |
+| Rooms service | Deployment of exactly one, `Recreate`, Service, a Secret with the invite key, and `/api` on the ingress, only with `selfService.enabled` | Lets signed-in people create rooms and invite others. It is the only writer of the room list |
 
 [docs/self-hosting.md](../../../docs/self-hosting.md#kubernetes) has the
 install sequence, which interleaves this chart with the felix chart because

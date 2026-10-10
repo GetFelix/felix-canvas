@@ -97,6 +97,35 @@ snapshotter:
   tolerations: []
   affinity: {}
 
+# Self-service rooms: signed-in people create rooms from the page, invite
+# others with links, and manage their own rooms. Runs the rooms service from
+# the snapshotter image, which signs in as the seed's admin account, and sends
+# /api/ on the gateway's ingress to it. Exactly one: it is the only writer of
+# the room list.
+selfService:
+  enabled: false
+  # A Secret holding the key invite links are signed with, 16 characters or
+  # more. Empty means the chart makes <release>-invite-key once and keeps it.
+  inviteSecret:
+    name: ""
+    key: secret
+  # Rooms one person may own, people in a room (its owner included), open
+  # invite links per room, and how long a link works.
+  roomsPerUser: 5
+  membersPerRoom: 20
+  invitesPerRoom: 10
+  inviteTtlHours: 168
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 # A Job at every install and upgrade that creates the tenant, the rooms and
 # their roles, and stores the broker's and the snapshotter's tokens in
 # Secrets. It signs the service accounts in with an internal provider

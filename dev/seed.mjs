@@ -1,6 +1,6 @@
 // Seeds a deployment: bootstrap a tenant that trusts the browsers' identity
-// provider, create each room's streams and caches, and give each room a role
-// whose members may open it. Writes the broker's credential and the
+// provider, create each room's streams and caches, give each room a role
+// whose members may open it, and create the list the rooms service keeps. Writes the broker's credential and the
 // snapshotter's token to the state directory. Safe to run again: existing
 // objects are kept, and rooms or members added to CANVAS_ROOMS are created.
 //
@@ -101,7 +101,8 @@ const caches = `cache:${TENANT}/${NAMESPACE}/*`;
 const object = (kind, name) => `${kind}:${TENANT}/${NAMESPACE}/${name}`;
 
 // A room's role holds exactly what a session in it needs; the gateway asks
-// the token exchange for no more than this.
+// the token exchange for no more than this. The rooms service grants the same
+// to the rooms it creates (snapshotter/src/rooms/felix.ts); keep the two in step.
 function roomPolicies(room) {
   const role = `role:room-${room}`;
   return [
@@ -184,6 +185,28 @@ const stream = (name, durable) => ({
   delivery: durable ? "AtLeastOnce" : "AtMostOnce",
   durable,
 });
+// The rooms service lists the rooms people create here, one key each, and
+// the snapshotter watches it to fold them. One shard, so one watch sees every
+// key. The service signs in as the admin, so the admin reads and writes it.
+const REGISTRY = "canvas.rooms";
+console.log(`cache ${REGISTRY}`);
+await request("POST", `${CONTROL_PLANE}/v1/tenants/${TENANT}/namespaces/${NAMESPACE}/caches`, {
+  token: admin,
+  body: {
+    cache: REGISTRY,
+    display_name: "Rooms people created",
+    shards: 1,
+    replication_factor: REPLICAS,
+    consistency: CONSISTENCY,
+  },
+});
+for (const action of ["cache.read", "cache.write"]) {
+  await request("POST", `${CONTROL_PLANE}/v1/tenants/${TENANT}/rbac/policies`, {
+    token: admin,
+    body: { subject: "role:admin", object: object("cache", REGISTRY), action },
+  });
+}
+
 for (const [room, members] of Object.entries(MEMBERS)) {
   for (const [name, durable] of [
     [`canvas.ops.${room}`, true],

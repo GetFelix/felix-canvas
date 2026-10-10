@@ -1,7 +1,7 @@
 {
   "name": "@felix-canvas/snapshotter",
   "version": "0.2.0",
-  "description": "Folds a room's op log and keeps its snapshot in the Felix cache",
+  "description": "The snapshotter, which keeps each room's snapshot in the Felix cache, and the rooms service",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "rooms": "node dist/rooms-main.js"
   },
   "dependencies": {
     "@felix-canvas/model": "0.2.0",

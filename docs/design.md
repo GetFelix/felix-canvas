@@ -152,6 +152,7 @@ the gateway works, not the log.
 | Brokers | Felix | Yes, authoritative | Op log per room, snapshot cache, presence, group cursors |
 | Control plane | Felix | Yes, metadata | Token exchange against the IdP, tenant/stream registration |
 | Snapshotter | TypeScript on Node, `felix-client` from npm | No | Reads the op log as a consumer group, writes compacted snapshots |
+| Rooms service | TypeScript on Node, in the snapshotter's package and image | No, its records are in Felix | Optional. Lets signed-in people create rooms and invite others; see [Self-service rooms](#self-service-rooms) |
 
 The canvas client and the snapshotter share the op schema, its encoding and
 the fold through the `model/` package, so the state a browser renders and the
@@ -739,8 +740,8 @@ were both worse. Cache keys would be a database built in a cache, with
 last-writer-wins membership edits. A small external store would be a second
 datastore. RBAC is already transactional, already consulted at every exchange
 and refresh, and needs no new process. The cost is that creating a room means
-creating its streams, caches and role, which the dev stack's seed does and an
-admin tool will do for a deployment.
+creating its streams, caches and role, which the seed does for the rooms an
+operator lists and the rooms service does for rooms people create.
 
 The gateway's own check is therefore short: a valid room name, and a token
 that covers the room. It holds no membership list and could not widen one.
@@ -749,6 +750,101 @@ Per-shape or per-layer permissions do not work here. That is finer than the
 broker's unit of authorization, so it would have to be enforced in the gateway,
 and gateway-enforced rules are exactly the kind of claim this project should not
 make.
+
+## Self-service rooms
+
+An operator lists rooms and their members in `CANVAS_ROOMS`, and the seed
+creates them. A public deployment needs people to make their own, which the
+optional rooms service provides. It is a small HTTP service under `/api/` on
+the page's origin, and it holds the one thing the browser must never have: a
+Felix admin credential. It signs in as the seed's `canvas-admin` account
+through the internal provider, as the seed does, and renews its tokens before
+they expire.
+
+It runs from the snapshotter's package and image rather than as a fourth
+image. That package already has `felix-client` and the Node build, the image
+already carries the seed and the internal provider, and the service shares
+the room list's format with the snapshotter.
+
+**Who is calling.** Every request carries the browser's ID token, the same one
+the gateway exchanges. The service checks it as the control plane does: an
+ES256 or RS256 signature by one of the provider's published keys, the issuer,
+the audience and the lifetime. It names the caller by the same subject claim
+and the same Felix principal, the SHA-256 of `issuer|subject`, so the person
+it puts in a role is exactly the person the token exchange later finds there.
+
+**The room list.** Each room people created is one key in the Felix cache
+`canvas.rooms`: its title, its owner's principal, its members with the names
+their sign-ins gave, and its open invites. The seed creates the cache with one
+shard. Felix still decides who may open a room, through the room's role; the
+list adds what RBAC cannot hold, which is who owns a room, what people are
+called and which invite links are open. The service is the list's only
+writer, so it runs as one replica and keeps the list in memory, reading it
+once at start with a watch that delivers every key's value. It makes one
+change at a time, so a limit check and the write it guards never interleave.
+
+**Creating a room.** The service checks the creator's limit, then does for
+one room what the seed does for each room it lists: the two streams, the three
+caches, the role and its policies, and the creator's assignment to the role.
+Only then does it write the room's key. A room id is `r` and eleven random
+letters and digits, never a name a person chose, so nobody can claim another
+team's room name and every id is a valid gateway scope and Felix name. The
+title is only for people.
+
+```mermaid
+sequenceDiagram
+    participant A as Owner's browser
+    participant B as Invitee's browser
+    participant R as Rooms service
+    participant C as Control plane
+    participant F as Broker
+    A->>R: create room (ID token)
+    R->>C: streams, caches, role, owner's assignment
+    R->>F: put the room's key in canvas.rooms
+    F-->>F: snapshotter's watch sees the new key
+    A->>R: create invite link
+    R->>F: record the invite on the room
+    R-->>A: signed link
+    A-->>B: the link, by any means
+    B->>R: accept (ID token, invite)
+    R->>C: assign the room's role to the invitee
+    R->>F: add the invitee to the room's key
+    B->>B: join the room through the gateway
+```
+
+**Invite links.** An invite is a token in the page address,
+`/?invite=<token>`: the room, the invite's id and its expiry, with an
+HMAC-SHA256 over them under `CANVAS_INVITE_SECRET`. The signature stops anyone
+from making up a link, and the room's key holds every open invite by id, so
+revoking one is deleting its id and expiry is checked against the stored time,
+not only the signed one. Anyone holding a link may join until it expires or is
+revoked, as with a shared link in other whiteboards; a room has at most
+`CANVAS_INVITES_PER_ROOM` open at once and `CANVAS_MEMBERS_PER_ROOM` people. The
+owner can copy an open link again at any time, because the same claims under
+the same key sign to the same token.
+
+**Owners.** Only the owner creates or revokes invites, removes people and
+deletes the room. Anyone else in the room may leave it. Someone outside a room
+gets "not found" for it, so a room id reveals nothing. Removing someone takes
+away their role assignment; deleting a room removes its key first, so it stops
+being listed and folded at once, then every assignment, the role's policies,
+the streams and the caches.
+
+**Taking access away.** A removed person cannot join again: the token
+exchange at their next join finds no role. A session they already have keeps
+working until its Felix token refreshes, because Felix cannot revoke a token
+it issued. Browser sessions' tokens last `FELIX_TOKEN_TTL_SECONDS`, which is
+long today because the broker's own credential shares that setting
+([felix#955](https://github.com/GetFelix/felix/issues/955)).
+
+**The snapshotter** folds the rooms in `CANVAS_ROOMS` and every room in
+`canvas.rooms`. It watches the cache with the same retained watch, starts
+folding a room when its key appears and stops when the key is deleted, so a
+new room is snapshotted without a restart.
+
+Operator rooms keep working as before. They are not in `canvas.rooms`, so they
+have no owner and do not show in anyone's rooms list, and the seed still
+manages their members.
 
 ## History and the time scrubber
 

@@ -26,6 +26,8 @@ import { assignColor } from "./members.js";
 import { Peers, ownName, personId, saveName } from "./peers.js";
 import { render, type Palette } from "./render.js";
 import { Scrubber } from "./scrubber.js";
+import { RoomPanels, showInvite } from "./roompanels.js";
+import { RoomsApi } from "./rooms.js";
 import { RoundTrips, Session } from "./session.js";
 import { bounds, readShape, type Shape } from "./shapes.js";
 import { TextBar, wholeFormats, type TextTarget } from "./textbar.js";
@@ -81,6 +83,10 @@ if (signInError) {
   await new Promise(() => {});
 }
 token ??= await signIn(oidc);
+const rooms = new RoomsApi(token);
+// An invite link opens a page that asks whether to join, not a room.
+const invite = new URLSearchParams(location.search).get("invite");
+if (invite) await showInvite(rooms, invite, { who: displayName(token), onSignIn: switchAccount });
 
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -126,6 +132,7 @@ const peers = new Peers(document.getElementById("cursors")!);
 const chrome = new Chrome(session, editor, name, person);
 chrome.setAccount(displayName(token), room);
 chrome.onSignIn = switchAccount;
+void new RoomPanels(rooms, chrome, room).start();
 
 let palette = readPalette();
 let dirty = true;
