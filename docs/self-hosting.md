@@ -17,7 +17,7 @@ gateway, the snapshotter and the seed read.
 | `certs` | the gateway image | Writes `state` | Makes the broker a TLS certificate on first start |
 | `idp` | the snapshotter image | No | The development sign-in page, while you try it out |
 
-The install pins Felix 0.6.0-preview.2.
+The install pins Felix 0.6.0-preview.4.
 
 Both canvas images are built for `linux/amd64` and `linux/arm64` and signed
 with cosign by the images workflow when a release is published. The release notes
@@ -307,7 +307,7 @@ kind, with the values in `deploy/helm/felix-canvas/ci/`.
    felix chart's README describes.
 
    ```bash
-   git clone --depth 1 --branch v0.6.0-preview.2 https://github.com/GetFelix/felix
+   git clone --depth 1 --branch v0.6.0-preview.4 https://github.com/GetFelix/felix
    helm install felix felix/deploy/helm/felix -f felix-values.yaml
    ```
 
