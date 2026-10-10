@@ -60,6 +60,9 @@ The compose install runs one broker, so it has no failover.
 - Sign-in through any OpenID Connect provider, with each room open only to the
   people you list. The broker enforces this, so a bug in the gateway cannot
   reach another room.
+- Optional self-service rooms: a signed-in person creates a room, shares an
+  invite link that expires or can be revoked, and removes people or deletes
+  the room, within limits you set.
 - On three brokers with three replicas, editing carries on when the broker
   holding a room is killed, and no acknowledged change is lost. The compose
   install has one broker, so it does not.
@@ -118,6 +121,7 @@ One room is one durable Felix stream plus a few cache keys.
 | Per-session sequence numbers | Counter | `canvas.seq.<room>/<session>` |
 | Who may open the room | Felix RBAC role | `role:room-<room>` |
 | Snapshot worker cursor | Consumer group | group `snapshotter` |
+| Rooms people created, their owners and invites | Cache key, one per room | `canvas.rooms/<room>` |
 
 [docs/design.md](docs/design.md) has the full design, including the join and
 snapshot ordering, conflict resolution, text editing and failure modes. Its

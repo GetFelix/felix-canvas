@@ -72,25 +72,41 @@ cargo install --locked felix-gateway --version 0.1.0
    npm start -w @felix-canvas/snapshotter
    ```
 
-4. In another shell, start the page, which proxies the gateway's routes:
+4. To make rooms from the page, start the rooms service in another shell. It
+   signs in as the seed's admin account through the stand-in provider and
+   answers `/api/` on `127.0.0.1:8789`:
+
+   ```bash
+   export CANVAS_FELIX_CA_FILE="$PWD/dev/state/broker-cert.pem"
+   export CANVAS_FELIX_CONTROL_PLANE=http://127.0.0.1:8443 CANVAS_SERVICE_IDP=http://127.0.0.1:9400
+   export CANVAS_INVITE_SECRET="$(openssl rand -hex 24)"
+   npm run rooms -w @felix-canvas/snapshotter
+   ```
+
+   Without it the page keeps to the seed's rooms.
+
+5. In another shell, start the page, which proxies the gateway's routes and
+   the rooms service's `/api/`:
 
    ```bash
    npm run dev -w @felix-canvas/web
    ```
 
-5. Open <http://localhost:5173> in two windows, continue as `ana` or `ben`, and
+6. Open <http://localhost:5173> in two windows, continue as `ana` or `ben`, and
    draw: <kbd>R</kbd> for a rectangle, <kbd>O</kbd> an ellipse, <kbd>L</kbd> a
    line, <kbd>P</kbd> the pen, <kbd>T</kbd> text, <kbd>V</kbd> to select and
    drag, and <kbd>?</kbd> for every shortcut. Double-click a shape to type in
    it; type in the same box from both windows at once. The chip at the top right shows how long your changes
    take to save; click it for the sync details, including the canvas version
    both windows should share. `?room=studio` opens the other room, which only
-   `ana` may open.
+   `ana` may open. With the rooms service running, click the room name to
+   make a room, and Share in it to invite the other window.
 
 `curl -s 127.0.0.1:8787/metrics` shows the latency of both legs.
 
 The browser tests start their own gateway (`felix-gateway` on your `PATH`, or
-`CANVAS_GATEWAY_BIN`), snapshotter and page against the running stack:
+`CANVAS_GATEWAY_BIN`), snapshotter, rooms service and page against the
+running stack:
 
 ```bash
 npx -w @felix-canvas/web playwright install chromium
@@ -106,7 +122,7 @@ gateway.
 | Path | What |
 |---|---|
 | `model/` | The op schema, its MessagePack encoding, the fold, the snapshot format and the state hash, shared by the browser and the snapshotter |
-| `snapshotter/` | Node service: reads a room's log through a consumer group with the `felix-client` npm package and keeps its snapshot in the cache |
+| `snapshotter/` | Two Node services on the `felix-client` npm package: the snapshotter, which reads each room's log through a consumer group and keeps its snapshot in the cache, and the rooms service (`src/rooms/`), which creates rooms and invites for signed-in people |
 | `web/` | The browser client: Canvas2D renderer, tools, the op pipeline and join path, and the Playwright tests |
 | `dev/` | Felix for local runs and CI: Docker Compose over the published images with one broker or three, a stand-in IdP, and the seed script |
 | `docker/` | The Dockerfiles for the two images. The canvas image is the published `ghcr.io/getfelix/felix-gateway` image plus the web page and `deploy/scope.toml` |
@@ -149,7 +165,9 @@ The seed then creates two rooms and decides who may open them:
 For each room it creates the two streams, the single-shard
 `canvas.seq.<room>`, `canvas.snap.<room>` and `canvas.members.<room>` caches (a
 cache watch reads one shard, and the member list is one), and the role
-`role:room-<room>`, assigned to the members. It writes the broker's credential,
+`role:room-<room>`, assigned to the members. It also creates `canvas.rooms`,
+the single-shard cache the rooms service keeps the rooms people make in, and
+lets the admin account read and write it. It writes the broker's credential,
 the snapshotter's token and the broker's certificate to `dev/state/`. Every run
 starts from an empty log. Open <http://localhost:5173/?room=studio> as `ben` to
 see a refused room.
@@ -250,10 +268,10 @@ this one on a kind cluster, given `FELIX_CHART` and the two images loaded as
 |---|---|
 | Gateway against Felix | Starts the dev stack and the pinned felix-gateway with `deploy/scope.toml`, and joins rooms as members and as someone who is not one. The gateway's own tests, including the narrowing test at the broker, run in felix-gateway's CI |
 | TypeScript | The lockfile rule above, `npm ci`, prettier, the build, type checks and unit tests for `model/`, `web/` and `snapshotter/` |
-| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound, two people typing into one text box at once and ending with the same text, the canvas breaking a fixed set of bodies into the same lines as the editor, every control and shortcut of the text bar in both themes, pasted HTML keeping only the formats text can have, carets staying on their characters while others type, and an open editor keeping its caret and unsent typing through a rejoin from the snapshot. The history, cold-join and slow-connection tests have typing in their load. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
+| Two browsers against Felix | Starts the dev stack, the gateway, the snapshotter and the page, and runs the Playwright tests in `web/e2e/`: two browsers converging, a cold browser joining a 10,000-op room, two people seeing each other's cursors and member list, a person who is not a member being shown that they cannot open a room, a throttled browser catching up while the others' save time holds, a browser scrubbing a 10,000-change room in the studio, checking each stop against a fresh fold, within a time bound, two people typing into one text box at once and ending with the same text, the canvas breaking a fixed set of bodies into the same lines as the editor, every control and shortcut of the text bar in both themes, pasted HTML keeping only the formats text can have, carets staying on their characters while others type, an open editor keeping its caret and unsent typing through a rejoin from the snapshot, and someone making a room, inviting a second person who joins through the link, removing them, and deleting the room. The history, cold-join and slow-connection tests have typing in their load. Each browser signs in through the stand-in provider's page. They run one at a time because they share a room, and the gateway runs with a 6 second member TTL so the crashed-tab test stays short |
 | Failover against a Felix cluster | Starts the three-broker stack and runs `web/e2e/failover.e2e.ts`: two browsers edit while a third watches the room's history, the broker that owns the room's op log is killed, and both editors end with the same state hash, which is also the fold of the log read back from offset 0. Every edit a browser saw acknowledged is in that log, the history view reaches the same state, the snapshotter carries on, and a browser that joins afterwards matches. It is a separate job, and not a required check, because it needs three brokers and stops one |
 | Release (workflow) | On pull requests, a dry run of the release: the tree's versions agree, the `CHANGELOG.md` section for that version exists, and the chart and the compose bundle package. See [Releasing](#releasing) |
-| Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page and once with Dex. Every run also checks that each image's publish step would find exactly its own two platform digests. When the Release workflow calls it with a tag, it pushes, merges and signs the images first, skipping any already published, and runs the install from GHCR. On pull requests it also installs the Felix chart and this chart on kind and runs the same test through it |
+| Images (workflow) | Builds both images on amd64 and arm64 runners, then starts the release compose file from the amd64 builds and runs the two-browser test in it, once with the development sign-in page, once with Dex, and once with `rooms.yaml`, where it also runs the self-service rooms test. Every run also checks that each image's publish step would find exactly its own two platform digests. When the Release workflow calls it with a tag, it pushes, merges and signs the images first, skipping any already published, and runs the install from GHCR. On pull requests it also installs the Felix chart and this chart on kind, with self-service rooms on, and runs the same test through it |
 
 ## Releasing
 

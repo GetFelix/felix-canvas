@@ -59,6 +59,9 @@ for _ in $(seq 1 90); do
     fi
     echo "The snapshotter also takes"
     echo "  export CANVAS_FELIX_TOKEN=\"\$(cat dev/state/snapshotter.token)\""
+    echo "The rooms service signs in on its own, with"
+    echo "  export CANVAS_FELIX_CONTROL_PLANE=http://127.0.0.1:8443 CANVAS_SERVICE_IDP=http://127.0.0.1:9400"
+    echo "  export CANVAS_INVITE_SECRET=\"\$(openssl rand -hex 24)\""
     exit 0
   fi
   sleep 2

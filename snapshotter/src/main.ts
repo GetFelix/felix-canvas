@@ -1,11 +1,13 @@
-// Keeps a snapshot of every room in CANVAS_ROOMS, with one Snapshotter per
-// room. Settings come from the same CANVAS_* variables as the gateway, plus
-// its own token; see docs/self-hosting.md.
+// Keeps a snapshot of every room in CANVAS_ROOMS and every room the rooms
+// service created, with one Snapshotter per room. Settings come from the same
+// CANVAS_* variables as the gateway, plus its own token; see
+// docs/self-hosting.md.
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 import felix from "felix-client";
 
+import { REGISTRY_CACHE } from "./rooms/record.js";
 import { Snapshotter, type RoomLog } from "./snapshotter.js";
 
 const env = (name: string, fallback: string): string => process.env[name] || fallback;
@@ -58,7 +60,9 @@ const schedule = {
   everyMs: Number(env("CANVAS_SNAPSHOT_EVERY_MS", "30000")),
   claimMs,
 };
-const snapshotters = new Map(rooms.map((room) => [room, new Snapshotter(roomLog(room), schedule)]));
+const snapshotters = new Map<string, Snapshotter>();
+const configured = new Set(rooms);
+for (const room of rooms) snapshotters.set(room, new Snapshotter(roomLog(room), schedule));
 
 createServer((_request, response) => {
   const positions = [...snapshotters].map(([room, snapshotter]) => [room, snapshotter.position]);
@@ -69,13 +73,7 @@ createServer((_request, response) => {
 );
 
 const waitOutClaims = () => new Promise((resolve) => setTimeout(resolve, claimMs));
-
-await Promise.all([...snapshotters.values()].map((snapshotter) => snapshotter.start()));
-// Records a previous run claimed and never acknowledged stay claimed until
-// the group's visibility timeout lapses, and newer records would be handed out
-// ahead of them. Waiting it out first means they come back before anything
-// newer, so the fold stays in offset order.
-await waitOutClaims();
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let reconnecting: Promise<void> | null = null;
 
@@ -99,8 +97,98 @@ function reconnect(lost: typeof client): Promise<void> {
   return reconnecting;
 }
 
-async function run(room: string, snapshotter: Snapshotter): Promise<never> {
+/** Set once the first rooms are folding; rooms found after that start at once. */
+let started = false;
+
+function addRoom(room: string): void {
+  if (snapshotters.has(room)) return;
+  const snapshotter = new Snapshotter(roomLog(room), schedule);
+  snapshotters.set(room, snapshotter);
+  console.log(`snapshotter: folding ${room}`);
+  // A new room has nothing an earlier run claimed, so there is nothing to wait out.
+  if (started) void begin(room, snapshotter);
+}
+
+function removeRoom(room: string): void {
+  if (configured.has(room) || !snapshotters.delete(room)) return;
+  console.log(`snapshotter: ${room} was deleted`);
+}
+
+async function begin(room: string, snapshotter: Snapshotter): Promise<void> {
+  while (snapshotters.get(room) === snapshotter) {
+    try {
+      await snapshotter.start();
+      return run(room, snapshotter);
+    } catch (err) {
+      console.error(`snapshotter ${room}: ${String(err)}`);
+      await sleep(1000);
+    }
+  }
+}
+
+/**
+ * Follow the rooms service's registry: a watch that first delivers every
+ * room it lists, then each room created or deleted. Resolves `listed` once
+ * the first full list is in, or once it is clear there is none to read.
+ */
+async function followRegistry(listed: () => void): Promise<never> {
   for (;;) {
+    const used = client;
+    try {
+      const watch = await client.watchCache(
+        tenant,
+        namespace,
+        REGISTRY_CACHE,
+        undefined,
+        "",
+        undefined,
+        true,
+      );
+      // Every retained value comes first, so the rooms missing from them were
+      // deleted while no watch was open.
+      let left = watch.retainedCount ?? 0n;
+      const seen = new Set<string>();
+      const reconcile = () => {
+        for (const room of [...snapshotters.keys()]) if (!seen.has(room)) removeRoom(room);
+        listed();
+      };
+      if (left === 0n) reconcile();
+      for (;;) {
+        const item = await watch.recv();
+        if (!item || item.laggedResumeFrom !== null) break;
+        const change = item.change;
+        if (!change) continue;
+        if (change.value) {
+          seen.add(change.key);
+          addRoom(change.key);
+        } else {
+          seen.delete(change.key);
+          removeRoom(change.key);
+        }
+        if (left > 0n && --left === 0n) reconcile();
+      }
+      await watch.close().catch(() => {});
+    } catch (err) {
+      // A deployment from before self-service rooms has no registry; its
+      // configured rooms carry on regardless.
+      console.error(`snapshotter: room list: ${String(err)}`);
+      listed();
+      if (err instanceof felix.ConnectionError) await reconnect(used);
+      else await sleep(30_000);
+    }
+    await sleep(2000);
+  }
+}
+
+await new Promise<void>((resolve) => void followRegistry(resolve));
+// Records a previous run claimed and never acknowledged stay claimed until
+// the group's visibility timeout lapses, and newer records would be handed out
+// ahead of them. Waiting it out first means they come back before anything
+// newer, so the fold stays in offset order.
+await waitOutClaims();
+
+async function run(room: string, snapshotter: Snapshotter): Promise<void> {
+  while (snapshotters.get(room) === snapshotter) {
     const used = client;
     try {
       await snapshotter.step(1000);
@@ -114,4 +202,5 @@ async function run(room: string, snapshotter: Snapshotter): Promise<never> {
   }
 }
 
-await Promise.all([...snapshotters].map(([room, snapshotter]) => run(room, snapshotter)));
+started = true;
+for (const [room, snapshotter] of snapshotters) void begin(room, snapshotter);

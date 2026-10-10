@@ -1,0 +1,55 @@
+# Self-service rooms, laid over docker-compose.yml: signed-in people create
+# rooms and invite others from the page. Adds the rooms service and a Caddy
+# edge that serves the canvas on CANVAS_PORT in the gateway's place, sending
+# /api/ to the rooms service and everything else to the gateway, so the page
+# reaches both on one origin. Needs Compose 2.24.4 or later for !reset.
+#
+#   docker compose -f docker-compose.yml -f rooms.yaml up -d
+#
+# docs/self-hosting.md describes each setting.
+services:
+  rooms:
+    image: ghcr.io/getfelix/felix-canvas-snapshotter:${CANVAS_VERSION:-0.2.0}
+    command: ["snapshotter/dist/rooms-main.js"]
+    environment:
+      CANVAS_ROOMS_LISTEN: 0.0.0.0:8789
+      CANVAS_FELIX_CONTROL_PLANE: http://controlplane:8443
+      # It signs in as the seed's admin account, so it can create rooms.
+      CANVAS_SERVICE_IDP: http://tokens:9400
+      CANVAS_FELIX_BROKERS: broker:5000
+      CANVAS_FELIX_SERVER_NAME: broker
+      CANVAS_FELIX_CA_FILE: /state/broker.crt
+      CANVAS_TENANT: ${CANVAS_TENANT:-canvas}
+      CANVAS_NAMESPACE: ${CANVAS_NAMESPACE:-default}
+      CANVAS_OIDC_ISSUER: ${CANVAS_OIDC_ISSUER}
+      CANVAS_OIDC_JWKS_URL: ${CANVAS_OIDC_JWKS_URL:-}
+      CANVAS_OIDC_CLIENT_ID: ${CANVAS_OIDC_CLIENT_ID}
+      CANVAS_OIDC_AUDIENCE: ${CANVAS_OIDC_AUDIENCE:-}
+      CANVAS_OIDC_SUBJECT_CLAIM: ${CANVAS_OIDC_SUBJECT_CLAIM:-sub}
+      CANVAS_INVITE_SECRET: ${CANVAS_INVITE_SECRET:?set CANVAS_INVITE_SECRET in .env}
+      CANVAS_ROOMS_PER_USER: ${CANVAS_ROOMS_PER_USER:-5}
+      CANVAS_MEMBERS_PER_ROOM: ${CANVAS_MEMBERS_PER_ROOM:-20}
+      CANVAS_INVITES_PER_ROOM: ${CANVAS_INVITES_PER_ROOM:-10}
+      CANVAS_INVITE_TTL_HOURS: ${CANVAS_INVITE_TTL_HOURS:-168}
+    volumes:
+      - state:/state:ro
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  edge:
+    image: docker.io/library/caddy:2
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    ports:
+      - "${CANVAS_BIND:-127.0.0.1}:${CANVAS_PORT:-8787}:8787"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - gateway
+      - rooms
+    restart: unless-stopped
+
+  gateway:
+    # The edge publishes the canvas instead.
+    ports: !reset []

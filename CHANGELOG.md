@@ -11,7 +11,22 @@ version it was tested against.
 
 ## [Unreleased]
 
+### Added
+
+- Self-service rooms, off unless you turn them on: a signed-in person creates
+  a room from the list under the room name, shares invite links that expire
+  after `CANVAS_INVITE_TTL_HOURS` or when revoked, removes people and deletes
+  the room. The new rooms service runs from the snapshotter image and holds
+  the Felix admin credential; the compose install adds it with `rooms.yaml`
+  and `CANVAS_INVITE_SECRET`, and the chart with `selfService.enabled`.
+  `CANVAS_ROOMS_PER_USER`, `CANVAS_MEMBERS_PER_ROOM` and
+  `CANVAS_INVITES_PER_ROOM` set the limits (#PR).
+
 ### Changed
+
+- The seed also creates the `canvas.rooms` cache, and the snapshotter folds
+  every room listed there besides `CANVAS_ROOMS`, starting and stopping as
+  rooms are created and deleted, without a restart (#PR).
 
 - `dev/up.sh` and the failover test run on Docker or Podman, and the docs show
   the Podman commands.

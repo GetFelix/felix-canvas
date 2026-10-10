@@ -7,6 +7,12 @@ Felix brokers with it:
     --set broker.credential.existingSecret={{ include "canvas.brokerSecret" . }}
 
 The gateway serves the canvas on the Service {{ include "canvas.fullname" . }}-gateway.
+{{- if .Values.selfService.enabled }}
+
+Self-service rooms are on. The rooms service answers /api/ on the Service
+{{ include "canvas.fullname" . }}-rooms; the ingress routes it, and anything
+else in front of the gateway must send /api/ there too.
+{{- end }}
 {{- if .Values.devIdp.enabled }}
 
 The development sign-in page signs in anyone. Browsers must reach it at

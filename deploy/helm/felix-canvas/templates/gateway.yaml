@@ -158,6 +158,15 @@ spec:
     - host: {{ required "gateway.ingress.host is required" $g.ingress.host | quote }}
       http:
         paths:
+          {{- if .Values.selfService.enabled }}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "canvas.fullname" . }}-rooms
+                port:
+                  name: http
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:
