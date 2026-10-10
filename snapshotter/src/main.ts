@@ -155,7 +155,8 @@ async function followRegistry(listed: () => void): Promise<never> {
       if (left === 0n) reconcile();
       for (;;) {
         const item = await watch.recv();
-        if (!item || item.laggedResumeFrom !== null) break;
+        // The addon hands back a missing field as undefined, not the null its types say.
+        if (!item || item.laggedResumeFrom != null) break;
         const change = item.change;
         if (!change) continue;
         if (change.value) {
