@@ -1,7 +1,7 @@
 import { createHash, createPublicKey, verify, type KeyObject } from "node:crypto";
 
-/** A public key in JWK form, as `createPublicKey` takes it. */
-type JsonWebKey = Extract<Parameters<typeof createPublicKey>[0], { format: "jwk" }>["key"];
+/** A public key in JWK form, as `createPublicKey` takes it, plus the `kid` a key set names it by. */
+type JsonWebKey = Extract<Parameters<typeof createPublicKey>[0], { format: "jwk" }>["key"] & { kid?: string };
 
 /** Who a verified ID token says the caller is. */
 export interface Identity {
