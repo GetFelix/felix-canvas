@@ -24,10 +24,18 @@ version it was tested against.
 
 ### Changed
 
+- The gateway is felix-gateway 0.3.0, and the page uses `felix-gateway-client`
+  0.3.0. The gateway now refuses a session's writes past 50 a second (bursts
+  of 100), so the page paces its own: ops at most 20 a second with bursts of
+  40, a drag waiting on that budget folding into one op per shape, and
+  presence at most 25 a second instead of 60. The scope file turns off the
+  gateway's per-address session cap, which behind Caddy or an ingress would
+  count every browser as the proxy, and lets an op carry up to 256 KiB. A
+  chart install that sets its own `gateway.scope` should add the same
+  `[limits]` settings.
 - Built on Felix 0.6.0-preview.4: the snapshotter uses `felix-client`
   0.6.0-preview.4, and the dev stack, the compose install and the chart's CI
-  run the 0.6.0-preview.4 images. The gateway stays on felix-gateway 0.1.0,
-  which negotiates capabilities with the newer broker.
+  run the 0.6.0-preview.4 images.
 - The seed also creates the `canvas.rooms` cache, and the snapshotter folds
   every room listed there besides `CANVAS_ROOMS`, starting and stopping as
   rooms are created and deleted, without a restart (#79).

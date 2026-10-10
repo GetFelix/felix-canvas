@@ -16,6 +16,7 @@ import {
 } from "@felix-canvas/model";
 
 import { GatewayClient, type GatewayEvent, type Join } from "felix-gateway-client";
+import { WriteBudget } from "./coalesce.js";
 import { Members, memberKey } from "./members.js";
 
 /** The room to open, and the ID token that signs the browser in. */
@@ -55,6 +56,13 @@ import { Replica, type PendingEdit } from "./replica.js";
 /** Seqs reserved from the counter at a time. Another block is fetched at half. */
 const SEQ_BLOCK = 1024;
 const RETRY_MS = [250, 500, 1000, 2000, 4000];
+/**
+ * Op publishes a second, and the burst. felix-gateway refuses a session's
+ * writes past 50 a second (bursts of 100) by default, and presence takes up
+ * to 25 of those. A drag waiting on the budget folds into its unsent op.
+ */
+const OP_WRITES_PER_S = 20;
+const OP_WRITE_BURST = 40;
 /** How long a peer may be ahead before this session decides its newest changes were lost. */
 const PEER_AHEAD_GRACE_MS = 2000;
 /** The slow link the throttle switch stands in for. */
@@ -164,6 +172,10 @@ export class Session {
   /** The oldest peer report of changes this session has not got, and when it came. */
   #peerAhead: { applied: number; at: number } | null = null;
   #retries = 0;
+  /** Pending edits still to publish on this connection, in order. */
+  #unsent: PendingEdit[] = [];
+  readonly #opBudget = new WriteBudget(OP_WRITES_PER_S, OP_WRITE_BURST);
+  #pumpTimer: ReturnType<typeof setTimeout> | undefined;
   #presenceSent = { n: 0, at: 0 };
   #member: Member | null = null;
   #refresh: { worker: Worker; everyMs: number } | null = null;
@@ -227,7 +239,10 @@ export class Session {
     }
     if (this.#seq >= this.#seqEnd) return false;
     this.replica.edit({ sid: this.sid, seq: this.#seq++, shape, kind, fields, at });
-    if (this.#client) this.#send(this.replica.pending.at(-1)!);
+    if (this.#client) {
+      this.#unsent.push(this.replica.pending.at(-1)!);
+      this.#pump();
+    }
     void this.#reserveSeqs();
     this.onDocChange();
     return true;
@@ -390,7 +405,8 @@ export class Session {
     this.#writeMember();
     // Resend before anything new, so this session's ops keep reaching the
     // log in seq order. The fold's dedupe absorbs any that landed already.
-    for (const edit of this.replica.pending) this.#send(edit);
+    this.#unsent = [...this.replica.pending];
+    this.#pump();
     await this.#reserveSeqs();
   }
 
@@ -454,8 +470,30 @@ export class Session {
     setTimeout(() => void this.#connect(), delay);
   }
 
-  #send(edit: PendingEdit): void {
-    const client = this.#client!;
+  /** Publish unsent edits in order, as fast as the op budget allows. */
+  #pump(): void {
+    const client = this.#client;
+    if (!client) return;
+    while (this.#unsent.length > 0) {
+      const edit = this.#unsent[0]!;
+      // A resent edit may have been confirmed by the log in the meantime.
+      if (!this.replica.pending.includes(edit)) {
+        this.#unsent.shift();
+        continue;
+      }
+      if (!this.#opBudget.take()) {
+        this.#pumpTimer ??= setTimeout(() => {
+          this.#pumpTimer = undefined;
+          this.#pump();
+        }, this.#opBudget.wait());
+        return;
+      }
+      this.#unsent.shift();
+      this.#send(client, edit);
+    }
+  }
+
+  #send(client: Gateway, edit: PendingEdit): void {
     const sentAt = performance.now();
     edit.sentAt = sentAt;
     // A failed publish may or may not have landed. Reconnecting resends every

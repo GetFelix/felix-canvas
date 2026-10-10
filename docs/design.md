@@ -170,7 +170,7 @@ caches and counters each room owns, under short aliases the browser uses.
 those resources a canvas lives in the browser and the snapshotter, so the same
 gateway can serve another application on Felix with a different scope file.
 It now has its own repository, [felix-gateway](https://github.com/GetFelix/felix-gateway), and
-the canvas runs its 0.1.0 release.
+the canvas runs its 0.3.0 release.
 
 The snapshotter is a separate process on purpose. Snapshot writes are throughput
 work and must never share a fate with an interactive socket, and running it as a
@@ -268,6 +268,13 @@ which is Figma's rule. When its own op comes back, matched on `(sid, seq)`, the
 op leaves the pending list and enters the fold at its offset, which is how the
 replica learns its own position in the log. The value on screen does not change,
 because every write that reached the log before it had a lower offset.
+
+The gateway refuses a session's writes past 50 a second rather than queueing
+them, and a drag changes a shape on every frame. So the client publishes at
+most 20 ops a second, with bursts of 40, and presence at most 25. An edit that
+waits for the budget stays unsent, and later patches to the same shape fold
+into it, so a long drag sends its latest position about 20 times a second
+whatever the screen's frame rate.
 
 ## Text editing
 

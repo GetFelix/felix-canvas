@@ -33,6 +33,44 @@ export class Coalescer {
 }
 
 /**
+ * A token bucket: `perSecond` writes a second, up to `burst` at once. The
+ * gateway refuses a write over its per-session rate instead of queueing it,
+ * so a session paces its own writes below that rate.
+ */
+export class WriteBudget {
+  readonly #perMs: number;
+  readonly #burst: number;
+  #tokens: number;
+  #at: number;
+
+  constructor(perSecond: number, burst: number, now = performance.now()) {
+    this.#perMs = perSecond / 1000;
+    this.#burst = burst;
+    this.#tokens = burst;
+    this.#at = now;
+  }
+
+  /** Spend one write if the budget has one. */
+  take(now = performance.now()): boolean {
+    this.#refill(now);
+    if (this.#tokens < 1) return false;
+    this.#tokens -= 1;
+    return true;
+  }
+
+  /** Milliseconds until {@link take} would succeed. */
+  wait(now = performance.now()): number {
+    this.#refill(now);
+    return this.#tokens >= 1 ? 0 : Math.ceil((1 - this.#tokens) / this.#perMs);
+  }
+
+  #refill(now: number): void {
+    this.#tokens = Math.min(this.#burst, this.#tokens + (now - this.#at) * this.#perMs);
+    this.#at = now;
+  }
+}
+
+/**
  * Collects the editor's Yjs updates and hands them on as one, merged:
  * `delayMs` after the first unsent one, so steady typing sends a few ops a
  * second, at once past `maxBytes`, which in practice is a paste, and

@@ -19,7 +19,21 @@ function e2eScopeFile(): string {
   const scope = readFileSync(`${root}deploy/scope.toml`, "utf8");
   if (!scope.includes("ttl_s = 30")) throw new Error("deploy/scope.toml has no ttl_s = 30");
   mkdirSync(state, { recursive: true });
-  writeFileSync(`${state}/scope.e2e.toml`, scope.replace("ttl_s = 30", "ttl_s = 6"));
+  // The tests' Writer stands in for many people from one session, at up to
+  // 300 writes a second, so the gateway's write rates are off here. The
+  // browsers keep their own pacing, and the installed-image runs keep the rates.
+  const unlimited = [
+    "[limits.session]",
+    "writes_per_s = 0",
+    "bytes_per_s = 0",
+    "[limits.principal]",
+    "writes_per_s = 0",
+    "bytes_per_s = 0",
+  ].join("\n");
+  writeFileSync(
+    `${state}/scope.e2e.toml`,
+    `${scope.replace("ttl_s = 30", "ttl_s = 6")}\n${unlimited}\n`,
+  );
   return `${state}/scope.e2e.toml`;
 }
 
@@ -41,7 +55,7 @@ export default defineConfig({
     ? []
     : [
         {
-          // felix-gateway 0.1.0, from `cargo install felix-gateway --version 0.1.0`.
+          // felix-gateway 0.3.0, from `cargo install felix-gateway --version 0.3.0`.
           command: process.env.CANVAS_GATEWAY_BIN ?? "felix-gateway",
           cwd: root,
           url: "http://127.0.0.1:8787/metrics",

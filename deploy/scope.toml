@@ -5,6 +5,14 @@
 # The slow-link switch in the canvas's toolbar.
 allow_throttle = true
 
+# The gateway's write limits. The defaults (50 writes a second per session,
+# 100 per person) fit, since the canvas paces its own writes below them.
+[limits]
+# The compose install with rooms.yaml and the chart's ingress put a proxy in
+# front of the gateway, so every browser would share the proxy's address and
+# a per-address cap would limit the whole install. The per-person cap stays.
+sessions_per_ip = 0
+
 [scope]
 field = "room"
 
@@ -13,6 +21,9 @@ field = "room"
 alias = "ops"
 name = "canvas.ops.{scope}"
 actions = ["publish", "subscribe"]
+# A long pen stroke is one op at about 18 bytes a point, and a text op can
+# carry a 64 KiB update plus its header, so 64 KiB is too small.
+max_payload_bytes = 262144
 
 # Cursors and selections, in memory only.
 [[scope.streams]]

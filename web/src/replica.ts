@@ -109,9 +109,10 @@ export class Replica {
   }
 
   /**
-   * Fold an edit into one not sent yet, so a drag while disconnected queues
-   * one op rather than one per frame, and typing one op per body. A patch
-   * joins the newest pending edit if that is an unsent patch of `shape`; text
+   * Fold an edit into one not sent yet, so a drag that is disconnected or
+   * waiting on the write budget queues one op per shape rather than one per
+   * frame, and typing one op per body. A patch joins the newest edit to
+   * `shape` if that is an unsent patch and nothing after it was sent; text
    * joins the newest unsent text op for `shape`, which is safe however many
    * edits to other shapes came after it, since only this body's text depends
    * on it. Returns whether it did.
@@ -124,9 +125,11 @@ export class Replica {
       const y = mergeTextUpdates([textOf(into.op), fields.y as Uint8Array]);
       into.op = { ...into.op, fields: { y } };
     } else {
-      const last = this.#pending.at(-1);
-      if (kind !== "patch" || !last || !unsent(last) || last.op.kind !== "patch") return false;
-      last.op = { ...last.op, fields: { ...last.op.fields, ...fields } };
+      if (kind !== "patch") return false;
+      const stop = (edit: PendingEdit) => edit.sentAt !== null || edit.op.shape === shape;
+      const into = this.#pending.findLast(stop);
+      if (!into || !unsent(into) || into.op.kind !== "patch") return false;
+      into.op = { ...into.op, fields: { ...into.op.fields, ...fields } };
     }
     this.#view = undefined;
     return true;

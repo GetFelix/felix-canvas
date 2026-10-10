@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Coalescer } from "../src/coalesce.js";
+import { Coalescer, WriteBudget } from "../src/coalesce.js";
 
 /** The times `take` said to send, calling it every `frameMs` until `untilMs`. */
 function sends(coalescer: Coalescer, frameMs: number, untilMs: number, moving: boolean): number[] {
@@ -32,5 +32,28 @@ describe("Coalescer", () => {
     coalescer.mark();
     expect(coalescer.take(116)).toBe(true);
     expect(coalescer.take(132)).toBe(false);
+  });
+});
+
+describe("WriteBudget", () => {
+  it("allows the burst at once, then the rate", () => {
+    const budget = new WriteBudget(20, 40, 0);
+    let burst = 0;
+    while (budget.take(0)) burst++;
+    expect(burst).toBe(40);
+    expect(budget.wait(0)).toBe(50);
+    expect(budget.take(49)).toBe(false);
+    expect(budget.take(50)).toBe(true);
+
+    let sent = 0;
+    for (let now = 50; now <= 1050; now += 10) if (budget.take(now)) sent++;
+    expect(sent).toBe(20);
+  });
+
+  it("refills no further than the burst", () => {
+    const budget = new WriteBudget(20, 40, 0);
+    let burst = 0;
+    while (budget.take(60_000)) burst++;
+    expect(burst).toBe(40);
   });
 });
