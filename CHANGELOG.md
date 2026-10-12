@@ -11,6 +11,15 @@ version it was tested against.
 
 ## [Unreleased]
 
+### Changed
+
+- The install, the dev stack and CI run Felix 0.6.0-preview.7, and the
+  snapshotter uses `felix-client` 0.6.0-preview.7.
+- The gateway is felix-gateway 0.3.3, and the page uses `felix-gateway-client`
+  0.3.3. Its shared connections now open with a connection-only broker token
+  and need Felix 0.6.0-preview.7; the canvas runs per-session connections, so
+  its setup does not change.
+
 ## [0.3.1] - 2026-10-10
 
 Tested against Felix 0.6.0-preview.5 and felix-gateway 0.3.2, which the
