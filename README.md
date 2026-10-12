@@ -76,8 +76,8 @@ install from the
 start it:
 
 ```bash
-curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.3.1/felix-canvas-compose-0.3.1.tar.gz | tar xz
-cd felix-canvas-compose-0.3.1
+curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.3.2/felix-canvas-compose-0.3.2.tar.gz | tar xz
+cd felix-canvas-compose-0.3.2
 # change FELIX_BOOTSTRAP_TOKEN and FELIX_RAFT_PEER_TOKEN in .env first
 docker compose up -d
 ```

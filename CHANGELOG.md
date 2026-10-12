@@ -11,6 +11,11 @@ version it was tested against.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-11
+
+Tested against Felix 0.6.0-preview.7 and felix-gateway 0.3.3, which the
+install now pins. Nothing in the canvas's own behavior or settings changes.
+
 ### Changed
 
 - The install, the dev stack and CI run Felix 0.6.0-preview.7, and the
