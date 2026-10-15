@@ -27,6 +27,7 @@ import { Peers, ownName, personId, saveName } from "./peers.js";
 import { render, type Palette } from "./render.js";
 import { Scrubber } from "./scrubber.js";
 import { RoomPanels, showInvite } from "./roompanels.js";
+import { gatewayUrl as resolveGatewayUrl } from "./gatewayurl.js";
 import { RoomsApi } from "./rooms.js";
 import { RoundTrips, Session } from "./session.js";
 import { bounds, readShape, type Shape } from "./shapes.js";
@@ -42,13 +43,6 @@ const HEARTBEAT_MS = 3000;
  * the gateway's per-session write rate (50 a second) must also fit the ops.
  */
 const PRESENCE_GAP_MS = 40;
-
-function gatewayUrl(): string {
-  const override = new URLSearchParams(location.search).get("gateway");
-  if (override) return override;
-  const scheme = location.protocol === "https:" ? "wss" : "ws";
-  return `${scheme}://${location.host}/ws`;
-}
 
 /** Fetch from the gateway, retrying until it answers. */
 async function fetchJson<T>(path: string): Promise<T> {
@@ -93,8 +87,8 @@ if (invite) await showInvite(rooms, invite, { who: displayName(token), onSignIn:
 
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
-const session = new Session(gatewayUrl(), { room, token });
-const scrubber = new Scrubber(new HistoryFeed(gatewayUrl(), { room, token }));
+const session = new Session(resolveGatewayUrl(location, import.meta.env.DEV), { room, token });
+const scrubber = new Scrubber(new HistoryFeed(resolveGatewayUrl(location, import.meta.env.DEV), { room, token }));
 const person = personId(token);
 let name = ownName(person, token);
 

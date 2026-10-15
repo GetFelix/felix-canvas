@@ -11,6 +11,11 @@ version it was tested against.
 
 ## [Unreleased]
 
+### Security
+
+- The `?gateway=` URL override now works only in dev builds. A crafted link could
+  otherwise point the session, and the ID token it sends, at another server.
+
 ## [0.3.2] - 2026-10-11
 
 Tested against Felix 0.6.0-preview.7 and felix-gateway 0.3.3, which the
