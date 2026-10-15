@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { gatewayUrl } from "../src/gatewayurl.js";
 
-const page = (search: string, protocol = "https:") => ({ protocol, host: "canvas.example", search });
+const page = (search: string, protocol = "https:") => ({
+  protocol,
+  host: "canvas.example",
+  search,
+});
 
 describe("gatewayUrl", () => {
   it("ignores ?gateway= in a production build", () => {

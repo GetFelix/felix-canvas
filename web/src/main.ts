@@ -88,7 +88,9 @@ if (invite) await showInvite(rooms, invite, { who: displayName(token), onSignIn:
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 const session = new Session(resolveGatewayUrl(location, import.meta.env.DEV), { room, token });
-const scrubber = new Scrubber(new HistoryFeed(resolveGatewayUrl(location, import.meta.env.DEV), { room, token }));
+const scrubber = new Scrubber(
+  new HistoryFeed(resolveGatewayUrl(location, import.meta.env.DEV), { room, token }),
+);
 const person = personId(token);
 let name = ownName(person, token);
 
