@@ -11,6 +11,11 @@ version it was tested against.
 
 ## [Unreleased]
 
+### Changed
+
+- The install, the dev stack and CI run Felix 0.6.0-preview.9, and the
+  snapshotter uses `felix-client` 0.6.0-preview.9.
+
 ### Security
 
 - The `?gateway=` URL override now works only in dev builds. A crafted link could
