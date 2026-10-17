@@ -20,7 +20,7 @@ the seed read.
 | `rooms` | the snapshotter image | No | Only with `rooms.yaml`. Lets signed-in people create rooms and invite others; see [Self-service rooms](#self-service-rooms) |
 | `edge` | `docker.io/library/caddy` | No | Only with `rooms.yaml`. Serves the canvas in the gateway's place, sending `/api/` to `rooms` |
 
-The install pins Felix 0.6.0-preview.7.
+The install pins Felix 0.6.0-preview.9.
 
 Both canvas images are built for `linux/amd64` and `linux/arm64` and signed
 with cosign by the images workflow when a release is published. The release notes
@@ -365,7 +365,7 @@ kind, with the values in `deploy/helm/felix-canvas/ci/`.
    felix chart's README describes.
 
    ```bash
-   git clone --depth 1 --branch v0.6.0-preview.7 https://github.com/GetFelix/felix
+   git clone --depth 1 --branch v0.6.0-preview.9 https://github.com/GetFelix/felix
    helm install felix felix/deploy/helm/felix -f felix-values.yaml
    ```
 
