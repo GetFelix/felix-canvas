@@ -60,9 +60,15 @@ because the broker reserves a segment up front for each log a room writes to
 
    `SHA256SUMS` on the same release has its checksum.
 
-2. Edit `.env`. Change `FELIX_BOOTSTRAP_TOKEN` and `FELIX_RAFT_PEER_TOKEN`
-   before the first start: the bootstrap token can create tenants and cluster
-   credentials, and the peer token can replace the Felix metadata.
+2. Set the two tokens in `.env` before the first start: the bootstrap token
+   can create tenants and cluster credentials, and the peer token can replace
+   the Felix metadata.
+
+   ```bash
+   sed -i.bak \
+     -e "s|^FELIX_BOOTSTRAP_TOKEN=.*|FELIX_BOOTSTRAP_TOKEN=$(openssl rand -base64 32)|" \
+     -e "s|^FELIX_RAFT_PEER_TOKEN=.*|FELIX_RAFT_PEER_TOKEN=$(openssl rand -base64 32)|" .env
+   ```
 
 3. Start it:
 
