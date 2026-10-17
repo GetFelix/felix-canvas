@@ -139,7 +139,9 @@ jobs:
           \`\`\`bash
           curl -fsSL ${download}/felix-canvas-compose-${VERSION}.tar.gz | tar xz
           cd felix-canvas-compose-${VERSION}
-          # change FELIX_BOOTSTRAP_TOKEN and FELIX_RAFT_PEER_TOKEN in .env first
+          sed -i.bak \\
+            -e "s|^FELIX_BOOTSTRAP_TOKEN=.*|FELIX_BOOTSTRAP_TOKEN=\$(openssl rand -base64 32)|" \\
+            -e "s|^FELIX_RAFT_PEER_TOKEN=.*|FELIX_RAFT_PEER_TOKEN=\$(openssl rand -base64 32)|" .env
           docker compose up -d
           \`\`\`
 
