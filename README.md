@@ -13,6 +13,13 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
+![Four people draw a client, broker and log diagram in one room at once, with named cursors, shapes and rich text, then the room scrubs back through its history to empty](docs/screenshots/canvas.gif)
+
+<sub>Four browsers drawing in one room on the compose install, then a scrub
+back through the room's history (full size:
+[canvas.mp4](docs/screenshots/canvas.mp4)). Recorded at half speed and played
+back at normal speed.</sub>
+
 Felix Canvas lets a group of people draw shapes and write rich text on one
 shared canvas in the browser, see each other's cursors, and scrub back through
 everything the room has done. It is for teams that want a shared whiteboard on
