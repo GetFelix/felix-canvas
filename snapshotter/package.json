@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@felix-canvas/model": "0.3.2",
-    "felix-client": "0.6.0"
+    "felix-client": "0.6.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
