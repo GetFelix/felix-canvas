@@ -16,6 +16,12 @@ version it was tested against.
 - The install, the dev stack and CI run Felix 0.6.0, and the snapshotter uses
   `felix-client` 0.6.0.
 
+### Fixed
+
+- Joining a room on a replicated Felix 0.6.0 cluster no longer hangs at "Loading the canvas"
+  when the room's log ends in a new leader's generation-start record, which holds no change
+  and is never delivered. The page now waits only for the offsets Felix says a read will deliver.
+
 ### Security
 
 - The `?gateway=` URL override now works only in dev builds. A crafted link could

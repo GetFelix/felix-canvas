@@ -61,6 +61,37 @@ describe("joining a room", () => {
     expect(stateHash(session.replica.confirmed)).toBe(room.hash());
   });
 
+  it("joins when the log ends in offsets that hold no event", async () => {
+    // A new leader's generation-start record takes an offset and is never
+    // delivered. Felix counts it in the tail a `live` subscribe reports, and
+    // stops a read's live offset short of it.
+    const room = new Room();
+    room.write(3);
+    const requests: string[] = [];
+    const session = new Session("ws://fake", { room: "lobby", token: "t" }, async () => {
+      const connection = new FakeGateway(room, requests);
+      connection.subscribe = (stream, from) => {
+        if (stream !== "ops") return;
+        requests.push(`subscribe ${from}`);
+        const events = room.log.length;
+        const start = from === "live" ? events + 1 : from;
+        setTimeout(() => {
+          connection.onSubscribed(stream, start, Math.max(start, events));
+          for (let offset = start; offset < events; offset++) {
+            connection.onEvent({ stream, offset, skippedBefore: 0, payload: room.log[offset]! });
+          }
+        });
+      };
+      return connection;
+    });
+    session.start();
+    await until(() => session.caughtUp);
+
+    expect(requests).toEqual(["subscribe live", "snapshot", "subscribe 0"]);
+    expect(session.replica.next).toBe(3);
+    expect(stateHash(session.replica.confirmed)).toBe(room.hash());
+  });
+
   it("rebuilds from the snapshot when its place in the log was trimmed, keeping unsaved edits", async () => {
     const room = new Room();
     room.write(5);

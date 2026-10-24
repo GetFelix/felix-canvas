@@ -353,7 +353,12 @@ export class Session {
       this.#expected = start ?? live ?? 0;
       this.#retries = 0;
       this.connection = "live";
-      this.tail = Math.max(this.tail, (live ?? 0) - 1);
+      // Every event below a subscription's live offset will arrive, and Felix
+      // stops that offset short of trailing records that hold no event (a new
+      // leader's generation start). So it replaces the tail: the raw tail an
+      // earlier `live` subscription reported can count such a record, which
+      // never arrives.
+      this.tail = Math.max(this.replica.next - 1, (live ?? 0) - 1);
       if (this.#awaitingSnapshot) void this.#loadSnapshot(client);
       this.#checkCaughtUp();
       this.onStatusChange();
