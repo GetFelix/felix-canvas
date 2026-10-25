@@ -77,7 +77,7 @@ The compose install runs one broker, so it has no failover.
 
 ## Quick start
 
-You need Docker or Podman, with Compose 2.20 or later. The install runs Felix 0.6.1. Download the compose
+You need Docker or Podman, with Compose 2.20 or later. The install runs Felix 0.6.2. Download the compose
 install from the
 [latest release](https://github.com/GetFelix/felix-canvas/releases/latest) and
 start it:
