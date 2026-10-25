@@ -13,8 +13,7 @@ version it was tested against.
 
 ### Changed
 
-- The install, the dev stack and CI run Felix 0.6.1, and the snapshotter uses
-  `felix-client` 0.6.1.
+- The install, the dev stack and CI run Felix 0.6.2, and the snapshotter uses `felix-client` 0.6.2.
 
 ### Fixed
 
