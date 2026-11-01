@@ -175,6 +175,14 @@ When Felix publishes a release, a bot opens a "chore: use Felix <version>" PR
 that moves every pin listed in [`.github/felix-bump.sh`](.github/felix-bump.sh)
 and the lockfiles, and merges it once CI passes. Prereleases are skipped.
 
+Every night a workflow ([`felix-nightly.yml`](.github/workflows/felix-nightly.yml))
+points this repo at the commit behind Felix's `nightly` tag and runs
+[`.github/felix-nightly.sh`](.github/felix-nightly.sh): it installs the TypeScript client built from that commit, starts the dev stack from the `:nightly` Felix images and runs the gateway, two-browser and cluster failover tests. A failure opens an
+issue labelled `felix-nightly` and a green run closes it, so a Felix change that
+breaks this repo shows up before the next release. See the latest run with
+`gh run list -R GetFelix/felix-canvas --workflow "Felix nightly" --limit 1`, or start
+one from the Actions tab.
+
 ## Contributing
 
 [CONTRIBUTING.md](CONTRIBUTING.md) describes how code, comments and pull
