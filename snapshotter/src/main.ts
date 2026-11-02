@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 
 import felix from "felix-client";
 
+import { ServiceTokens } from "./rooms/felix.js";
 import { REGISTRY_CACHE } from "./rooms/record.js";
 import { Snapshotter, type RoomLog } from "./snapshotter.js";
 
@@ -14,14 +15,37 @@ const env = (name: string, fallback: string): string => process.env[name] || fal
 
 const tokenFile = env("CANVAS_FELIX_TOKEN_FILE", "");
 const token = tokenFile ? readFileSync(tokenFile, "utf8").trim() : env("CANVAS_FELIX_TOKEN", "");
-if (!token) {
+const serviceIdp = env("CANVAS_SERVICE_IDP", "").replace(/\/$/, "");
+if (!token && !serviceIdp) {
   console.error(
-    "Set CANVAS_FELIX_TOKEN or CANVAS_FELIX_TOKEN_FILE to the snapshotter's Felix token",
+    "Set CANVAS_FELIX_TOKEN or CANVAS_FELIX_TOKEN_FILE to the snapshotter's Felix token, " +
+      "or CANVAS_SERVICE_IDP to let it sign in and renew its own",
   );
   process.exit(1);
 }
 const tenant = env("CANVAS_TENANT", "canvas");
 const namespace = env("CANVAS_NAMESPACE", "default");
+// With a service provider the snapshotter signs in itself, as the rooms service
+// does, and the client asks for a new token when the old one is two thirds
+// spent. A fixed token lasts only as long as it was minted for.
+const signedIn = serviceIdp
+  ? new ServiceTokens(
+      {
+        controlPlane: env("CANVAS_FELIX_CONTROL_PLANE", "http://controlplane:8443").replace(
+          /\/$/,
+          "",
+        ),
+        tenant,
+        namespace,
+        serviceIdp,
+        replicas: 1,
+      },
+      "canvas-snapshotter",
+    )
+  : null;
+const mintToken = signedIn
+  ? () => signedIn.fresh(["stream.subscribe", "cache.read", "cache.write"])
+  : null;
 // The seed's `room=member,member` list, separated by spaces. Only the names matter here.
 const rooms = env("CANVAS_ROOMS", "lobby")
   .split(/\s+/)
@@ -35,7 +59,7 @@ const brokers = env("CANVAS_FELIX_BROKERS", "127.0.0.1:5000").split(",");
 const caFile = process.env.CANVAS_FELIX_CA_FILE;
 const connect = () =>
   felix.Client.connect(brokers, tenant, {
-    token,
+    ...(mintToken ? { tokenProvider: mintToken } : { token }),
     serverName: env("CANVAS_FELIX_SERVER_NAME", "localhost"),
     ...(caFile ? { caFile } : {}),
   });

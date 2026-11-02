@@ -13,7 +13,7 @@ the seed read.
 | `snapshotter` | `ghcr.io/getfelix/felix-canvas-snapshotter` | No | Keeps each room's folded state in the Felix cache, so joining a busy room is fast |
 | `broker` | `ghcr.io/getfelix/felix-broker` | Yes, `felix-data` | Felix: every room's op log, snapshots, member list and counters |
 | `controlplane` | `ghcr.io/getfelix/felix-controlplane` | Yes, `controlplane-data` | Felix: the tenant, rooms, roles and token exchange, kept in its own Raft log |
-| `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and the list self-service rooms are kept in, and writes the broker's and snapshotter's tokens |
+| `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and the list self-service rooms are kept in, and writes the broker's and snapshotter's tokens, and the broker's refresh token |
 | `tokens` | the snapshotter image | No | Signs in the seed's service accounts; never published |
 | `certs` | the gateway image | Writes `state` | Makes the broker a TLS certificate on first start |
 | `idp` | the snapshotter image | No | The development sign-in page, while you try it out |
@@ -235,8 +235,9 @@ costs what an operator room does: two streams and three caches, with a segment
 each on disk (see `FELIX_SEGMENT_BYTES`).
 
 A removed person cannot join the room again, but a session they already have
-open keeps working until its Felix token refreshes, which is
-`FELIX_TOKEN_TTL_SECONDS` (see [the limits the install works around](#limits-the-install-works-around)).
+open keeps working until its Felix token refreshes, which Felix's token
+lifetime sets: 15 minutes, or 30 days on Kubernetes (see
+[the limits the install works around](#limits-the-install-works-around)).
 Deleting a room ends every session in it.
 
 ## TLS
@@ -332,11 +333,12 @@ Felix's own release notes when `FELIX_VERSION` changes. Keep the backup until
 the new release has run for a while: restoring it with the old compose file is
 the way back.
 
-The snapshotter reads its token once, when it starts, and the broker has no
-refresh token ([#105](https://github.com/GetFelix/felix-canvas/issues/105)),
-so the tokens have to be long-lived. They last `FELIX_TOKEN_TTL_SECONDS`, 30
-days by default. Restart at least that often,
-which also re-mints them:
+The broker and the snapshotter renew their own Felix tokens, so there is no
+restart deadline. The seed gives the broker a refresh token in `/state`, which
+the broker spends and replaces as it renews, and the snapshotter signs in with
+the `tokens` service as the rooms service does. A refresh token lasts 30 days
+from its last use, so a broker that was stopped for longer needs a new one.
+Running the seed again mints it:
 
 ```bash
 docker compose up -d --force-recreate
@@ -367,9 +369,12 @@ kind, with the values in `deploy/helm/felix-canvas/ci/`.
    point: a three-member Raft control plane, which keeps the metadata in its
    own volumes so no database is needed, the broker settings the canvas wants
    (acks with offsets, small delivery batches, a deep writer queue, 16 MiB segments), each broker
-   advertised by pod IP, and the control plane's token lifetime and accepted
-   algorithms as in the compose install. Add brokers and peer mTLS as the
-   felix chart's README describes.
+   advertised by pod IP, and the control plane's accepted algorithms
+   and token lifetime. The lifetime is 30 days here, unlike the compose
+   install: the felix chart mounts the broker's credential Secret read-only, so
+   a broker cannot save a refreshed token, and the snapshotter's token comes
+   from the same seed. Add brokers and peer mTLS as the felix chart's README
+   describes.
 
    ```bash
    git clone --depth 1 --branch v0.6.2 https://github.com/GetFelix/felix
@@ -432,9 +437,8 @@ a Secret of your own instead, and `selfService.roomsPerUser`,
 for instance a different member TTL: `--set-file gateway.scope=scope.toml`.
 
 Each `helm upgrade` of this chart runs the seed again, which adds new rooms and
-members and re-mints both tokens. The snapshotter reads its token
-only at start and the broker has no refresh token ([#105](https://github.com/GetFelix/felix-canvas/issues/105)), so
-restart both within the token lifetime:
+members and re-mints both tokens. Neither renews its token on
+Kubernetes, so restart both within the token lifetime, 30 days:
 
 ```bash
 kubectl rollout restart statefulset/felix-broker deployment/felix-canvas-snapshotter
@@ -464,7 +468,6 @@ brokers scaled to zero so nothing is mid-write.
 | `FELIX_VERSION` | the release's Felix | The Felix images' tag |
 | `FELIX_OIDC_ALGORITHMS` | `ES256,RS256` | ID token signing algorithms Felix accepts |
 | `FELIX_SEGMENT_BYTES` | `16777216` | The broker's log segment size. Each log a room writes to reserves a whole segment on disk up front, so this sets what a room costs before anyone draws. Felix's own default is 256 MiB |
-| `FELIX_TOKEN_TTL_SECONDS` | `2592000` | How long a token from the control plane lasts, browser sessions' included. Sessions refresh theirs; the broker's and snapshotter's last until a restart |
 | `FELIX_LOG`, `CANVAS_LOG` | `info` | Log filters for Felix and the gateway |
 
 ### Gateway
@@ -497,6 +500,7 @@ the gateway's `GATEWAY_*` variables of the same names do, and:
 |---|---|---|
 | `CANVAS_FELIX_TOKEN` | required, or the file | Its own Felix token |
 | `CANVAS_FELIX_TOKEN_FILE` | unset | A file holding that token, read at start |
+| `CANVAS_SERVICE_IDP` | unset | The `tokens` service. When set, the snapshotter signs in as `canvas-snapshotter` and renews its token before it expires, and needs no token of its own. It exchanges at `CANVAS_FELIX_CONTROL_PLANE`, as the seed does |
 | `CANVAS_ROOMS` | `lobby` | The rooms to snapshot, in the seed's format; only the names before `=` are read. Rooms people created are found in the `canvas.rooms` cache as they are made and deleted |
 | `CANVAS_SNAPSHOTTER_LISTEN` | `127.0.0.1:8788` (`0.0.0.0:8788` in the image) | Where it answers `GET /` with each room's `{"applied", "saved"}`: the last offset folded and the last one a stored snapshot holds |
 | `CANVAS_SNAPSHOT_EVERY_OPS` | `500` | Write a room's snapshot once this many records are folded but not saved |
@@ -538,6 +542,7 @@ so two would overwrite each other's changes.
 | `CANVAS_FELIX_BOOTSTRAP_TOKEN` | `dev-bootstrap` | Its token |
 | `CANVAS_SERVICE_IDP` | `http://idp:9400` | A `dev/idp.mjs` the service accounts sign in with. Keep it unreachable from outside |
 | `CANVAS_STATE_DIR` | `/state` | Where it writes `node.token` and `snapshotter.token` |
+| `CANVAS_BROKER_REFRESH_TOKENS` | `0` | How many brokers get a refresh token, written as `node-refresh-1.token` and so on, one chain each. A broker with `FELIX_NODE_REFRESH_TOKEN_FILE` set to its file renews itself. The file's directory must be writable by the broker |
 | `CANVAS_TENANT`, `CANVAS_NAMESPACE` | `canvas`, `default` | Where to create the rooms |
 | `CANVAS_ROOMS` | `lobby=ana,ben,cleo studio=ana` | Rooms and their members, `room=member,member` separated by spaces |
 | `CANVAS_OIDC_ISSUER` | the service provider's | The browsers' provider |
@@ -553,5 +558,4 @@ so two would overwrite each other's changes.
 | What | Why | Tracked in |
 |---|---|---|
 | The `tokens` service | Felix issues tokens in exchange for an ID token, and its `dev-token` endpoint answers only on a loopback bootstrap listener, so the service accounts need a provider of their own | none; it stays |
-| `FELIX_TOKEN_TTL_SECONDS` of 30 days and a restart within it | The broker's token comes from one exchange. Felix 0.6 can renew it from `FELIX_NODE_REFRESH_TOKEN_FILE`, but the seed does not write a refresh token yet | [#105](https://github.com/GetFelix/felix-canvas/issues/105) |
-| Removing someone from a room ends their open session only at its next token refresh | Felix cannot revoke a token it issued, and browser sessions share `FELIX_TOKEN_TTL_SECONDS` with the broker's credential | Not filed yet |
+| Removing someone from a room ends their open session only at its next token refresh: within 15 minutes, or 30 days on Kubernetes | Felix cannot revoke a token it issued, and the Kubernetes install sets one lifetime for the brokers' tokens and the sessions' | none |

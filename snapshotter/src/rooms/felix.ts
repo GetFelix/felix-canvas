@@ -19,16 +19,18 @@ export interface FelixSettings {
 }
 
 /**
- * Felix tokens for the `canvas-admin` service account, which the seed made a
- * tenant admin. Felix issues tokens only in exchange for an ID token, so this
+ * Felix tokens for a service account the seed created, `canvas-admin` unless
+ * told otherwise. Felix issues tokens only in exchange for an ID token, so this
  * signs in with the internal provider first, as the seed does.
  */
 export class ServiceTokens {
   readonly #settings: FelixSettings;
+  readonly #subject: string;
   readonly #cached = new Map<string, string>();
 
-  constructor(settings: FelixSettings) {
+  constructor(settings: FelixSettings, subject = "canvas-admin") {
     this.#settings = settings;
+    this.#subject = subject;
   }
 
   /** A token for the control plane's API. */
@@ -41,16 +43,29 @@ export class ServiceTokens {
     return this.#token("data", { requested: ["cache.read", "cache.write"] });
   }
 
+  /**
+   * A new token for the brokers carrying `requested`, never a cached one. For
+   * a client's token provider, which asks only when it wants a replacement.
+   */
+  fresh(requested: string[]): Promise<string> {
+    return this.#mint({ requested });
+  }
+
   async #token(kind: string, body: object): Promise<string> {
     const cached = this.#cached.get(kind);
     if (cached && !expiring(cached)) return cached;
-    const { serviceIdp, controlPlane, tenant } = this.#settings;
-    const minted = await call("GET", `${serviceIdp}/token?sub=canvas-admin&aud=felix-canvas`);
-    const exchange = `${controlPlane}/v1/tenants/${tenant}/token/exchange`;
-    const answer = await call("POST", exchange, { token: minted.id_token as string, body });
-    const token = answer.felix_token as string;
+    const token = await this.#mint(body);
     this.#cached.set(kind, token);
     return token;
+  }
+
+  async #mint(body: object): Promise<string> {
+    const { serviceIdp, controlPlane, tenant } = this.#settings;
+    const signIn = `${serviceIdp}/token?sub=${this.#subject}&aud=felix-canvas`;
+    const minted = await call("GET", signIn);
+    const exchange = `${controlPlane}/v1/tenants/${tenant}/token/exchange`;
+    const answer = await call("POST", exchange, { token: minted.id_token as string, body });
+    return answer.felix_token as string;
   }
 }
 

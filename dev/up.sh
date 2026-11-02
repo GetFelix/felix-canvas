@@ -31,7 +31,7 @@ if [[ "${1:-}" == "--cluster" ]]; then
 fi
 
 "${compose[@]}" -f docker-compose.yml -f docker-compose.cluster.yml down --volumes --remove-orphans >/dev/null 2>&1 || true
-rm -f state/*.pem state/node.token state/snapshotter.token state/seeded
+rm -f state/*.pem state/node.token state/node-refresh-*.token state/snapshotter.token state/seeded
 mkdir -p state
 if ! "${compose[@]}" "${files[@]}" up --detach; then
   "${compose[@]}" "${files[@]}" logs >&2

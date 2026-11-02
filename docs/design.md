@@ -840,9 +840,10 @@ the streams and the caches.
 **Taking access away.** A removed person cannot join again: the token
 exchange at their next join finds no role. A session they already have keeps
 working until its Felix token refreshes, because Felix cannot revoke a token
-it issued. Browser sessions' tokens last `FELIX_TOKEN_TTL_SECONDS`, which is
-long today because the broker's own credential shares that setting
-([#105](https://github.com/GetFelix/felix-canvas/issues/105)).
+it issued. Browser sessions' tokens last Felix's default of 15 minutes, so that
+is how long a removed person's open session can outlive their removal. The
+Kubernetes install sets 30 days, because its brokers cannot renew their own
+credential.
 
 **The snapshotter** folds the rooms in `CANVAS_ROOMS` and every room in
 `canvas.rooms`. It watches the cache with the same retained watch, starts

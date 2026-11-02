@@ -30,8 +30,9 @@ services:
       FELIX_BOOTSTRAP_TOKEN: dev-bootstrap
       # The dev IdP is plain HTTP on the compose network.
       FELIX_CONTROLPLANE_OIDC_ALLOW_INSECURE_HTTP: "true"
-      # The broker reads its credential once at startup, so the default 15
-      # minutes would end a dev session early. Session tokens refresh.
+      # The brokers renew their own tokens. This is for node.token and
+      # snapshotter.token, which tests and curl use as they are; a session's
+      # token refreshes.
       FELIX_EXCHANGE_TOKEN_TTL_SECONDS: "86400"
       RUST_LOG: info
     ports:
@@ -46,6 +47,8 @@ services:
     volumes:
       - ./seed.mjs:/app/seed.mjs:ro
       - ./state:/state
+    environment:
+      CANVAS_BROKER_REFRESH_TOKENS: "1"
     depends_on:
       controlplane:
         condition: service_healthy
@@ -55,6 +58,7 @@ services:
     environment:
       FELIX_CONTROLPLANE_URL: http://controlplane:8443
       FELIX_NODE_TOKEN_FILE: /state/node.token
+      FELIX_NODE_REFRESH_TOKEN_FILE: /state/node-refresh-1.token
       FELIX_DURABLE_STORAGE_DIR: /var/lib/felix
       FELIX_TLS_CERT_EXPORT: /state/broker-cert.pem
       # One listener, so the one published UDP port is the only one clients use.
