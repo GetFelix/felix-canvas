@@ -105,8 +105,14 @@ describe("joining a room", () => {
     room.oldest = 15;
     requests.length = 0;
 
-    await until(() => session.rebuilding);
-    await until(() => !session.rebuilding && session.replica.pending.length === 0);
+    // The rebuild takes a few milliseconds, less than the poll interval, so
+    // wait for its end: the request order shows it ran.
+    await until(
+      () =>
+        requests.includes("subscribe 20") &&
+        !session.rebuilding &&
+        session.replica.pending.length === 0,
+    );
 
     expect(requests).toEqual(["subscribe 5", "subscribe live", "snapshot", "subscribe 20"]);
     expect(session.caughtUp).toBe(true);
