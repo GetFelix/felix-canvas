@@ -45,6 +45,9 @@ echo "::endgroup::"
 
 echo "::group::Two browsers against Felix"
 npm run build -w @felix-canvas/model
+# Playwright's web server would build this too, but it hides tsc's output, so a
+# break against the client from Felix main would show only as "build failed".
+npm run build -w @felix-canvas/snapshotter
 npx -w @felix-canvas/web playwright install --with-deps chromium
 dev/up.sh
 npm run test:e2e -w @felix-canvas/web
