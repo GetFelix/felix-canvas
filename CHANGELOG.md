@@ -11,6 +11,11 @@ version it was tested against.
 
 ## [Unreleased]
 
+### Added
+
+- A nightly workflow runs the gateway, two-browser and failover checks against Felix main and opens an issue
+  labelled `felix-nightly` when they fail.
+
 ### Changed
 
 - The install, the dev stack and CI run Felix 0.6.2, and the snapshotter uses `felix-client` 0.6.2.

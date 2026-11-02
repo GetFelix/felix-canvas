@@ -41,6 +41,8 @@ for _ in $(seq 1 30); do
 done
 node .github/scripts/gateway-join.mjs || { cat "${RUNNER_TEMP:-/tmp}/gateway.log"; exit 1; }
 kill "$gateway"
+# Playwright starts its own gateway on the same port.
+wait "$gateway" 2>/dev/null || true
 echo "::endgroup::"
 
 echo "::group::Two browsers against Felix"

@@ -176,12 +176,12 @@ that moves every pin listed in [`.github/felix-bump.sh`](.github/felix-bump.sh)
 and the lockfiles, and merges it once CI passes. Prereleases are skipped.
 
 Every night a workflow
-([`felix-nightly.yml`](.github/workflows/felix-nightly.yml)) points the Felix
-crates listed in `.felix-version` at the commit behind Felix's `nightly` tag and
-runs [`.github/felix-nightly.sh`](.github/felix-nightly.sh): it installs the
-TypeScript client built from that commit, starts the dev stack from the
-`:nightly` Felix images and runs the gateway, two-browser and cluster failover
-tests. When a run on `main` fails it opens an issue labelled `felix-nightly`,
+([`felix-nightly.yml`](.github/workflows/felix-nightly.yml)) tests the canvas
+against the commit behind Felix's `nightly` tag. It installs the TypeScript
+client built from that commit, starts the dev stack from the `:nightly` Felix
+images, and runs [`.github/felix-nightly.sh`](.github/felix-nightly.sh): the
+gateway, two-browser and cluster failover checks, with the released
+felix-gateway that CI uses. When a run on `main` fails it opens an issue labelled `felix-nightly`,
 and a green run closes it, so a Felix change that breaks this repo shows up
 before the next release. See the latest run with `gh run list -R
 GetFelix/felix-canvas --workflow "Felix nightly" --limit 1`, or start one from
