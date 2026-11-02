@@ -14,6 +14,9 @@ version it was tested against.
 ### Changed
 
 - The install, the dev stack and CI run Felix 0.6.2, and the snapshotter uses `felix-client` 0.6.2.
+- The gateway is felix-gateway 0.8.0, and the page uses `felix-gateway-client` 0.8.0. The
+  releases since 0.3.3 only add opt-in features the canvas does not ask for, so its setup and
+  scope file do not change. Tested against Felix 0.6.2.
 
 ### Fixed
 

@@ -58,7 +58,7 @@ export default defineConfig({
     ? []
     : [
         {
-          // felix-gateway 0.3.3, from `cargo install felix-gateway --version 0.3.3`.
+          // felix-gateway 0.8.0, from `cargo install felix-gateway --version 0.8.0`.
           command: process.env.CANVAS_GATEWAY_BIN ?? "felix-gateway",
           cwd: root,
           url: "http://127.0.0.1:8787/metrics",
