@@ -10,6 +10,7 @@ import felix from "felix-client";
 import { ServiceTokens } from "./rooms/felix.js";
 import { REGISTRY_CACHE } from "./rooms/record.js";
 import { Snapshotter, type RoomLog } from "./snapshotter.js";
+import { credentialOptions } from "./token-options.js";
 
 const env = (name: string, fallback: string): string => process.env[name] || fallback;
 
@@ -44,7 +45,8 @@ const signedIn = serviceIdp
     )
   : null;
 const mintToken = signedIn
-  ? () => signedIn.fresh(["stream.subscribe", "cache.read", "cache.write"])
+  ? (signal: AbortSignal) =>
+      signedIn.fresh(["stream.subscribe", "cache.read", "cache.write"], signal)
   : null;
 // The seed's `room=member,member` list, separated by spaces. Only the names matter here.
 const rooms = env("CANVAS_ROOMS", "lobby")
@@ -59,7 +61,7 @@ const brokers = env("CANVAS_FELIX_BROKERS", "127.0.0.1:5000").split(",");
 const caFile = process.env.CANVAS_FELIX_CA_FILE;
 const connect = () =>
   felix.Client.connect(brokers, tenant, {
-    ...(mintToken ? { tokenProvider: mintToken } : { token }),
+    ...credentialOptions(token, mintToken),
     serverName: env("CANVAS_FELIX_SERVER_NAME", "localhost"),
     ...(caFile ? { caFile } : {}),
   });

@@ -13,9 +13,9 @@ the seed read.
 | `snapshotter` | `ghcr.io/getfelix/felix-canvas-snapshotter` | No | Keeps each room's folded state in the Felix cache, so joining a busy room is fast |
 | `broker` | `ghcr.io/getfelix/felix-broker` | Yes, `felix-data` | Felix: every room's op log, snapshots, member list and counters |
 | `controlplane` | `ghcr.io/getfelix/felix-controlplane` | Yes, `controlplane-data` | Felix: the tenant, rooms, roles and token exchange, kept in its own Raft log |
-| `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and the list self-service rooms are kept in, and writes the broker's and snapshotter's tokens, and the broker's refresh token |
+| `seed` | the snapshotter image | No | Runs at each start: creates the tenant, the rooms and their roles, and the list self-service rooms are kept in, and writes the broker's token and refresh token to `broker-tokens` |
 | `tokens` | the snapshotter image | No | Signs in the seed's service accounts; never published |
-| `certs` | the gateway image | Writes `state` | Makes the broker a TLS certificate on first start |
+| `certs` | the gateway image | Writes `state` | Makes the broker a TLS certificate on first start, and hands `state` and `broker-tokens` to the uid the other containers run as |
 | `idp` | the snapshotter image | No | The development sign-in page, while you try it out |
 | `rooms` | the snapshotter image | No | Only with `rooms.yaml`. Lets signed-in people create rooms and invite others; see [Self-service rooms](#self-service-rooms) |
 | `edge` | `docker.io/library/caddy` | No | Only with `rooms.yaml`. Serves the canvas in the gateway's place, sending `/api/` to `rooms` |
@@ -172,8 +172,9 @@ recreated with the new list.
 
 The seed never removes anything. To take someone out of a room, delete their
 assignment through the Felix control plane with an admin token, or remove the
-room from `CANVAS_ROOMS` to stop snapshotting it. A removed member loses access
-at their session's next token refresh.
+room from `CANVAS_ROOMS` to stop snapshotting it. Removing an assignment
+(`DELETE /v1/tenants/<tenant>/rbac/groupings`) also revokes that person's broker
+tokens, so Felix ends their open streams.
 
 Each room is two streams and three caches in Felix, one shard each:
 `canvas.ops.<room>` (durable) and `canvas.presence.<room>` (in memory), and
@@ -234,9 +235,9 @@ provider, and set the limits below to what your deployment can hold. Each room
 costs what an operator room does: two streams and three caches, with a segment
 each on disk (see `FELIX_SEGMENT_BYTES`).
 
-A removed person cannot join the room again, but a session they already have
-open keeps working until its Felix token refreshes, which Felix's token
-lifetime sets: 15 minutes, or 30 days on Kubernetes (see
+A removed person cannot join the room again. Removing them deletes their role
+assignment, and Felix revokes that person's broker tokens and ends the streams
+they opened, as soon as the brokers next poll its revocation feed (see
 [the limits the install works around](#limits-the-install-works-around)).
 Deleting a room ends every session in it.
 
@@ -286,7 +287,8 @@ Two volumes hold everything, and they belong together:
 |---|---|---|
 | `controlplane-data` | The control plane's Raft log and snapshots: the tenant, rooms, roles and trusted issuers | Felix no longer knows the rooms in its log |
 | `felix-data` | Every room's op log, snapshots, member list and sequence counters | Every drawing is gone |
-| `state` | The service tokens and the broker certificate | Nothing: the seed re-mints the tokens and `certs` makes a new certificate |
+| `state` | The broker certificate | Nothing: `certs` makes a new certificate |
+| `broker-tokens` | The broker's token and refresh token | Nothing: the seed mints new ones. Only the seed and the broker mount it, so the gateway, which faces the internet, cannot read them |
 
 Back them up together, with Felix stopped so neither is mid-write. The
 control plane is a Raft group of one, so a copy of its volume taken while it
@@ -334,7 +336,7 @@ the new release has run for a while: restoring it with the old compose file is
 the way back.
 
 The broker and the snapshotter renew their own Felix tokens, so there is no
-restart deadline. The seed gives the broker a refresh token in `/state`, which
+restart deadline. The seed gives the broker a refresh token in the `broker-tokens` volume, which
 the broker spends and replaces as it renews, and the snapshotter signs in with
 the `tokens` service as the rooms service does. A refresh token lasts 30 days
 from its last use, so a broker that was stopped for longer needs a new one.
@@ -372,8 +374,8 @@ kind, with the values in `deploy/helm/felix-canvas/ci/`.
    advertised by pod IP, and the control plane's accepted algorithms
    and token lifetime. The lifetime is 30 days here, unlike the compose
    install: the felix chart mounts the broker's credential Secret read-only, so
-   a broker cannot save a refreshed token, and the snapshotter's token comes
-   from the same seed. Add brokers and peer mTLS as the felix chart's README
+   a broker cannot save a refreshed token, and the chart gives the snapshotter
+   the token from that Secret instead of `CANVAS_SERVICE_IDP`. Add brokers and peer mTLS as the felix chart's README
    describes.
 
    ```bash
@@ -498,9 +500,10 @@ the gateway's `GATEWAY_*` variables of the same names do, and:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CANVAS_FELIX_TOKEN` | required, or the file | Its own Felix token |
+| `CANVAS_FELIX_TOKEN` | required, or the file or `CANVAS_SERVICE_IDP` | Its own Felix token |
 | `CANVAS_FELIX_TOKEN_FILE` | unset | A file holding that token, read at start |
-| `CANVAS_SERVICE_IDP` | unset | The `tokens` service. When set, the snapshotter signs in as `canvas-snapshotter` and renews its token before it expires, and needs no token of its own. It exchanges at `CANVAS_FELIX_CONTROL_PLANE`, as the seed does |
+| `CANVAS_SERVICE_IDP` | unset | The `tokens` service. When set, the snapshotter signs in as `canvas-snapshotter` and renews its token before it expires, and needs no token of its own. The compose install does this; the chart gives it a fixed token |
+| `CANVAS_FELIX_CONTROL_PLANE` | `http://controlplane:8443` | The control plane it exchanges its sign-in at, when `CANVAS_SERVICE_IDP` is set |
 | `CANVAS_ROOMS` | `lobby` | The rooms to snapshot, in the seed's format; only the names before `=` are read. Rooms people created are found in the `canvas.rooms` cache as they are made and deleted |
 | `CANVAS_SNAPSHOTTER_LISTEN` | `127.0.0.1:8788` (`0.0.0.0:8788` in the image) | Where it answers `GET /` with each room's `{"applied", "saved"}`: the last offset folded and the last one a stored snapshot holds |
 | `CANVAS_SNAPSHOT_EVERY_OPS` | `500` | Write a room's snapshot once this many records are folded but not saved |
@@ -541,7 +544,9 @@ so two would overwrite each other's changes.
 | `CANVAS_FELIX_BOOTSTRAP` | `http://controlplane:9095` | The control plane's bootstrap listener |
 | `CANVAS_FELIX_BOOTSTRAP_TOKEN` | `dev-bootstrap` | Its token |
 | `CANVAS_SERVICE_IDP` | `http://idp:9400` | A `dev/idp.mjs` the service accounts sign in with. Keep it unreachable from outside |
-| `CANVAS_STATE_DIR` | `/state` | Where it writes `node.token` and `snapshotter.token` |
+| `CANVAS_STATE_DIR` | `/state` | Where it writes `node.token`, `snapshotter.token` (the compose snapshotter signs in itself and does not read it) and the refresh tokens. The compose install points it at the `broker-tokens` volume, which the gateway does not mount |
+| `CANVAS_STATE_DIR_MODE` | `777` | The directory's octal mode. The default lets a broker running as another uid write there; the compose install sets `700` |
+| `CANVAS_TOKEN_FILE_MODE` | `644` | The token files' octal mode. The compose install sets `600`, as the seed and the broker run as the same uid. Each file is written to a temporary name and renamed into place |
 | `CANVAS_BROKER_REFRESH_TOKENS` | `0` | How many brokers get a refresh token, written as `node-refresh-1.token` and so on, one chain each. A broker with `FELIX_NODE_REFRESH_TOKEN_FILE` set to its file renews itself. The file's directory must be writable by the broker |
 | `CANVAS_TENANT`, `CANVAS_NAMESPACE` | `canvas`, `default` | Where to create the rooms |
 | `CANVAS_ROOMS` | `lobby=ana,ben,cleo studio=ana` | Rooms and their members, `room=member,member` separated by spaces |
@@ -558,4 +563,4 @@ so two would overwrite each other's changes.
 | What | Why | Tracked in |
 |---|---|---|
 | The `tokens` service | Felix issues tokens in exchange for an ID token, and its `dev-token` endpoint answers only on a loopback bootstrap listener, so the service accounts need a provider of their own | none; it stays |
-| Removing someone from a room ends their open session only at its next token refresh: within 15 minutes, or 30 days on Kubernetes | Felix cannot revoke a token it issued, and the Kubernetes install sets one lifetime for the brokers' tokens and the sessions' | none |
+| Removing someone from a room ends their open session when the brokers next poll Felix's revocation feed, not at the instant of removal | The brokers learn of a revocation by polling the control plane on its sync interval, and a broker that cannot reach it enforces the revocation only when it can again | none |
