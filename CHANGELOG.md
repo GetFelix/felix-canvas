@@ -22,6 +22,9 @@ version it was tested against.
   the setting can remove it.
 - The docs no longer call the token and token-lifetime settings Felix gaps: Felix now offers what they were for,
   and the install not using it yet is tracked in [#105](https://github.com/GetFelix/felix-canvas/issues/105).
+- The gateway is felix-gateway 0.8.0, and the page uses `felix-gateway-client` 0.8.0. The
+  releases since 0.3.3 only add opt-in features the canvas does not ask for, so its setup and
+  scope file do not change. Tested against Felix 0.6.2.
 
 ### Fixed
 
