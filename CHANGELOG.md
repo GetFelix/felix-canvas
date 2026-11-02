@@ -17,9 +17,11 @@ version it was tested against.
 - The broker no longer sets `FELIX_SUB_QUEUE_BOUND=8192` in the dev stack, the compose install or the chart's
   CI values. Felix 0.6.0 makes the shared queues behind a connection wait instead of dropping, so the default
   holds a connection with many subscriptions. A deployment that copied the setting can remove it.
-- The docs no longer call the token, token lifetime and ack settings Felix gaps: Felix closed them, and what is
-  left is tracked in [#105](https://github.com/GetFelix/felix-canvas/issues/105) and
-  [felix-gateway#56](https://github.com/GetFelix/felix-gateway/issues/56).
+- The broker no longer sets `FELIX_ACK_ON_COMMIT=true`. A durable stream acks after the write by default
+  since Felix 0.6.0, and every stream the canvas publishes its changes to is durable. A deployment that copied
+  the setting can remove it.
+- The docs no longer call the token and token-lifetime settings Felix gaps: Felix now offers what they were for,
+  and the install not using it yet is tracked in [#105](https://github.com/GetFelix/felix-canvas/issues/105).
 
 ### Fixed
 

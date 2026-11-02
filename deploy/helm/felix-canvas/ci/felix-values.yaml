@@ -57,8 +57,6 @@ broker:
     # As in the compose install: each log reserves a whole segment up front.
     - name: FELIX_DURABLE_SEGMENT_BYTES
       value: "16777216"
-    - name: FELIX_ACK_ON_COMMIT
-      value: "true"
     - name: FELIX_EVENT_BATCH_MAX_EVENTS
       value: "8"
     - name: FELIX_EVENT_BATCH_MAX_DELAY_US

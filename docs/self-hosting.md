@@ -333,8 +333,9 @@ the new release has run for a while: restoring it with the old compose file is
 the way back.
 
 The snapshotter reads its token once, when it starts, and the broker has no
-refresh token ([#105](https://github.com/GetFelix/felix-canvas/issues/105)), so the tokens last
-`FELIX_TOKEN_TTL_SECONDS`, 30 days by default. Restart at least that often,
+refresh token ([#105](https://github.com/GetFelix/felix-canvas/issues/105)),
+so the tokens have to be long-lived. They last `FELIX_TOKEN_TTL_SECONDS`, 30
+days by default. Restart at least that often,
 which also re-mints them:
 
 ```bash
@@ -553,5 +554,4 @@ so two would overwrite each other's changes.
 |---|---|---|
 | The `tokens` service | Felix issues tokens in exchange for an ID token, and its `dev-token` endpoint answers only on a loopback bootstrap listener, so the service accounts need a provider of their own | none; it stays |
 | `FELIX_TOKEN_TTL_SECONDS` of 30 days and a restart within it | The broker's token comes from one exchange. Felix 0.6 can renew it from `FELIX_NODE_REFRESH_TOKEN_FILE`, but the seed does not write a refresh token yet | [#105](https://github.com/GetFelix/felix-canvas/issues/105) |
-| `FELIX_ACK_ON_COMMIT=true` on the broker | An ack carries the record's offset only if the broker acks after the write. Felix can do that per connection, but the gateway does not ask for it | [felix-gateway#56](https://github.com/GetFelix/felix-gateway/issues/56) |
 | Removing someone from a room ends their open session only at its next token refresh | Felix cannot revoke a token it issued, and browser sessions share `FELIX_TOKEN_TTL_SECONDS` with the broker's credential | Not filed yet |

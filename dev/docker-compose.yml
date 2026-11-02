@@ -59,10 +59,6 @@ services:
       FELIX_TLS_CERT_EXPORT: /state/broker-cert.pem
       # One listener, so the one published UDP port is the only one clients use.
       FELIX_QUIC_LISTENERS: "1"
-      # Acknowledge after the write, so acks carry the record's log offset.
-      # Felix can do this per connection, but the gateway doesn't ask yet
-      # (felix-gateway#56).
-      FELIX_ACK_ON_COMMIT: "true"
       # Small delivery batches: a canvas wants latency, not throughput.
       FELIX_EVENT_BATCH_MAX_EVENTS: "8"
       FELIX_EVENT_BATCH_MAX_DELAY_US: "100"
