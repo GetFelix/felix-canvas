@@ -32,14 +32,13 @@ const snapshotKey = "latest";
 const group = "snapshotter";
 
 const brokers = env("CANVAS_FELIX_BROKERS", "127.0.0.1:5000").split(",");
+const caFile = process.env.CANVAS_FELIX_CA_FILE;
 const connect = () =>
-  felix.Client.connect(
-    brokers,
-    tenant,
+  felix.Client.connect(brokers, tenant, {
     token,
-    env("CANVAS_FELIX_SERVER_NAME", "localhost"),
-    process.env.CANVAS_FELIX_CA_FILE || undefined,
-  );
+    serverName: env("CANVAS_FELIX_SERVER_NAME", "localhost"),
+    ...(caFile ? { caFile } : {}),
+  });
 let client = await connect();
 
 // The gateway reads the snapshot under the same names; see deploy/scope.toml.

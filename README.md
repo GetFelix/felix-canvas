@@ -77,7 +77,7 @@ The compose install runs one broker, so it has no failover.
 
 ## Quick start
 
-You need Docker or Podman, with Compose 2.20 or later. The install runs Felix 0.6.1. Download the compose
+You need Docker or Podman, with Compose 2.20 or later. The install runs Felix 0.6.2. Download the compose
 install from the
 [latest release](https://github.com/GetFelix/felix-canvas/releases/latest) and
 start it:
@@ -110,7 +110,7 @@ To work on the code with a local gateway, snapshotter and page, follow
 
 A browser speaks WebSocket to a stateless Rust gateway, which relays to Felix
 over QUIC with a token narrowed to the browser's room. The gateway is
-[felix-gateway](https://github.com/GetFelix/felix-gateway) 0.3.3, and the
+[felix-gateway](https://github.com/GetFelix/felix-gateway) 0.8.0, and the
 browser talks to it through its `felix-gateway-client` package. The browser's canvas is
 a fold of the room's op log in offset order, so two browsers that have applied
 the same prefix hold the same canvas and can confirm it with a state hash. A

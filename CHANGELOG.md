@@ -13,8 +13,18 @@ version it was tested against.
 
 ### Changed
 
-- The install, the dev stack and CI run Felix 0.6.1, and the snapshotter uses
-  `felix-client` 0.6.1.
+- The install, the dev stack and CI run Felix 0.6.2, and the snapshotter uses `felix-client` 0.6.2.
+- The broker no longer sets `FELIX_SUB_QUEUE_BOUND=8192` in the dev stack, the compose install or the chart's
+  CI values. Felix 0.6.0 makes the shared queues behind a connection wait instead of dropping, so the default
+  holds a connection with many subscriptions. A deployment that copied the setting can remove it.
+- The broker no longer sets `FELIX_ACK_ON_COMMIT=true`. A durable stream acks after the write by default
+  since Felix 0.6.0, and every stream the canvas publishes its changes to is durable. A deployment that copied
+  the setting can remove it.
+- The docs no longer call the token and token-lifetime settings Felix gaps: Felix now offers what they were for,
+  and the install not using it yet is tracked in [#105](https://github.com/GetFelix/felix-canvas/issues/105).
+- The gateway is felix-gateway 0.8.0, and the page uses `felix-gateway-client` 0.8.0. The
+  releases since 0.3.3 only add opt-in features the canvas does not ask for, so its setup and
+  scope file do not change. Tested against Felix 0.6.2.
 
 ### Fixed
 

@@ -170,7 +170,7 @@ caches and counters each room owns, under short aliases the browser uses.
 those resources a canvas lives in the browser and the snapshotter, so the same
 gateway can serve another application on Felix with a different scope file.
 It now has its own repository, [felix-gateway](https://github.com/GetFelix/felix-gateway), and
-the canvas runs its 0.3.3 release.
+the canvas runs its 0.8.0 release.
 
 The snapshotter is a separate process on purpose. Snapshot writes are throughput
 work and must never share a fate with an interactive socket, and running it as a
@@ -842,7 +842,7 @@ exchange at their next join finds no role. A session they already have keeps
 working until its Felix token refreshes, because Felix cannot revoke a token
 it issued. Browser sessions' tokens last `FELIX_TOKEN_TTL_SECONDS`, which is
 long today because the broker's own credential shares that setting
-([felix#955](https://github.com/GetFelix/felix/issues/955)).
+([#105](https://github.com/GetFelix/felix-canvas/issues/105)).
 
 **The snapshotter** folds the rooms in `CANVAS_ROOMS` and every room in
 `canvas.rooms`. It watches the cache with the same retained watch, starts

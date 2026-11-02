@@ -22,7 +22,7 @@ services:
       retries: 15
 
   controlplane:
-    image: ghcr.io/getfelix/felix-controlplane:0.6.1
+    image: ghcr.io/getfelix/felix-controlplane:0.6.2
     environment:
       # In-memory store: a restart of the stack starts from nothing.
       FELIX_BOOTSTRAP_ENABLED: "true"
@@ -51,7 +51,7 @@ services:
         condition: service_healthy
 
   broker:
-    image: ghcr.io/getfelix/felix-broker:0.6.1
+    image: ghcr.io/getfelix/felix-broker:0.6.2
     environment:
       FELIX_CONTROLPLANE_URL: http://controlplane:8443
       FELIX_NODE_TOKEN_FILE: /state/node.token
@@ -59,17 +59,10 @@ services:
       FELIX_TLS_CERT_EXPORT: /state/broker-cert.pem
       # One listener, so the one published UDP port is the only one clients use.
       FELIX_QUIC_LISTENERS: "1"
-      # Acknowledge after the write, so acks carry the record's log offset.
-      FELIX_ACK_ON_COMMIT: "true"
       # Small delivery batches: a canvas wants latency, not throughput.
       FELIX_EVENT_BATCH_MAX_EVENTS: "8"
       FELIX_EVENT_BATCH_MAX_DELAY_US: "100"
       FELIX_FANOUT_BATCH: "8"
-      # The writer queue is per connection, not per subscription, and one
-      # change is one entry for each subscription on the connection. At the
-      # default of 64, a client holding 100 subscriptions on one connection
-      # loses changes at any rate.
-      FELIX_SUB_QUEUE_BOUND: "8192"
       RUST_LOG: info
     ports:
       - "127.0.0.1:5000:5000/udp"
