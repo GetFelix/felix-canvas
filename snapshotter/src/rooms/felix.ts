@@ -286,7 +286,11 @@ export class FelixRegistry implements Registry {
     if (this.#client) this.#drop(this.#client.client);
     const token = await this.#tokens.brokers();
     const { brokers, tenant, serverName, caFile } = this.#settings;
-    const client = await felix.Client.connect(brokers, tenant, token, serverName, caFile);
+    const client = await felix.Client.connect(brokers, tenant, {
+      token,
+      serverName,
+      ...(caFile ? { caFile } : {}),
+    });
     this.#client = { client, token };
     return client;
   }
