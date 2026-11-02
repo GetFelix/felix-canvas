@@ -236,7 +236,7 @@ each on disk (see `FELIX_SEGMENT_BYTES`).
 
 A removed person cannot join the room again, but a session they already have
 open keeps working until its Felix token refreshes, which is
-`FELIX_TOKEN_TTL_SECONDS` (see [Felix gaps](#felix-gaps-this-works-around)).
+`FELIX_TOKEN_TTL_SECONDS` (see [the limits the install works around](#limits-the-install-works-around)).
 Deleting a room ends every session in it.
 
 ## TLS
@@ -332,8 +332,8 @@ Felix's own release notes when `FELIX_VERSION` changes. Keep the backup until
 the new release has run for a while: restoring it with the old compose file is
 the way back.
 
-The broker and snapshotter read their tokens once, when they start
-([felix#955](https://github.com/GetFelix/felix/issues/955)), and the tokens last
+The snapshotter reads its token once, when it starts, and the broker has no
+refresh token ([#105](https://github.com/GetFelix/felix-canvas/issues/105)), so the tokens last
 `FELIX_TOKEN_TTL_SECONDS`, 30 days by default. Restart at least that often,
 which also re-mints them:
 
@@ -431,8 +431,8 @@ a Secret of your own instead, and `selfService.roomsPerUser`,
 for instance a different member TTL: `--set-file gateway.scope=scope.toml`.
 
 Each `helm upgrade` of this chart runs the seed again, which adds new rooms and
-members and re-mints both tokens. The broker and the snapshotter read theirs
-only at start ([felix#955](https://github.com/GetFelix/felix/issues/955)), so
+members and re-mints both tokens. The snapshotter reads its token
+only at start and the broker has no refresh token ([#105](https://github.com/GetFelix/felix-canvas/issues/105)), so
 restart both within the token lifetime:
 
 ```bash
@@ -547,13 +547,11 @@ so two would overwrite each other's changes.
 | `CANVAS_OIDC_GROUPS_CLAIM` | unset | The claim holding a member's groups, for `group:` members |
 | `CANVAS_REPLICAS` | `1` | Copies of each room's streams and caches. Above 1, the op log and caches acknowledge on a majority, so a room survives losing a broker; needs that many brokers |
 
-## Felix gaps this works around
+## Limits the install works around
 
-| What | Why | Felix issue |
+| What | Why | Tracked in |
 |---|---|---|
-| The `tokens` service | Felix issues tokens only in exchange for an IdP token, so the service accounts need a provider of their own | [#954](https://github.com/GetFelix/felix/issues/954) |
-| `FELIX_TOKEN_TTL_SECONDS` of 30 days and a restart within it | A standalone broker reads its token once and stops working when it expires | [#955](https://github.com/GetFelix/felix/issues/955) |
-| `FELIX_ACK_ON_COMMIT=true` on the broker | Only an ack after the write carries the record's offset, and that is a broker-wide setting | [#956](https://github.com/GetFelix/felix/issues/956) |
-| `FELIX_SUB_QUEUE_BOUND=8192` on the broker | The writer queue is per connection, with one entry per subscription for each change, so the default of 64 loses changes on a busy connection | Not filed yet |
+| The `tokens` service | Felix issues tokens in exchange for an ID token, and its `dev-token` endpoint answers only on a loopback bootstrap listener, so the service accounts need a provider of their own | none; it stays |
+| `FELIX_TOKEN_TTL_SECONDS` of 30 days and a restart within it | The broker's token comes from one exchange. Felix 0.6 can renew it from `FELIX_NODE_REFRESH_TOKEN_FILE`, but the seed does not write a refresh token yet | [#105](https://github.com/GetFelix/felix-canvas/issues/105) |
+| `FELIX_ACK_ON_COMMIT=true` on the broker | An ack carries the record's offset only if the broker acks after the write. Felix can do that per connection, but the gateway does not ask for it | [felix-gateway#56](https://github.com/GetFelix/felix-gateway/issues/56) |
 | Removing someone from a room ends their open session only at its next token refresh | Felix cannot revoke a token it issued, and browser sessions share `FELIX_TOKEN_TTL_SECONDS` with the broker's credential | Not filed yet |
-| The compose file is written from Felix's environment reference | Felix's own compose docs still pin 0.5.0 | [#957](https://github.com/GetFelix/felix/issues/957) |

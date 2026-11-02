@@ -25,7 +25,7 @@ controlplane:
       value: "true"
     - name: FELIX_CONTROLPLANE_OIDC_ALLOWED_ALGORITHMS
       value: ES256,RS256
-    # The broker and snapshotter read their tokens once (felix#955).
+    # The snapshotter reads its token once and the broker gets no refresh token (felix-canvas#105).
     - name: FELIX_EXCHANGE_TOKEN_TTL_SECONDS
       value: "2592000"
 broker:
@@ -65,6 +65,3 @@ broker:
       value: "100"
     - name: FELIX_FANOUT_BATCH
       value: "8"
-    # The writer queue is per connection, one entry per subscription per change.
-    - name: FELIX_SUB_QUEUE_BOUND
-      value: "8192"

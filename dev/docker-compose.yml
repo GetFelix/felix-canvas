@@ -60,16 +60,13 @@ services:
       # One listener, so the one published UDP port is the only one clients use.
       FELIX_QUIC_LISTENERS: "1"
       # Acknowledge after the write, so acks carry the record's log offset.
+      # Felix can do this per connection, but the gateway doesn't ask yet
+      # (felix-gateway#56).
       FELIX_ACK_ON_COMMIT: "true"
       # Small delivery batches: a canvas wants latency, not throughput.
       FELIX_EVENT_BATCH_MAX_EVENTS: "8"
       FELIX_EVENT_BATCH_MAX_DELAY_US: "100"
       FELIX_FANOUT_BATCH: "8"
-      # The writer queue is per connection, not per subscription, and one
-      # change is one entry for each subscription on the connection. At the
-      # default of 64, a client holding 100 subscriptions on one connection
-      # loses changes at any rate.
-      FELIX_SUB_QUEUE_BOUND: "8192"
       RUST_LOG: info
     ports:
       - "127.0.0.1:5000:5000/udp"

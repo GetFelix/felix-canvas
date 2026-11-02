@@ -842,7 +842,7 @@ exchange at their next join finds no role. A session they already have keeps
 working until its Felix token refreshes, because Felix cannot revoke a token
 it issued. Browser sessions' tokens last `FELIX_TOKEN_TTL_SECONDS`, which is
 long today because the broker's own credential shares that setting
-([felix#955](https://github.com/GetFelix/felix/issues/955)).
+([#105](https://github.com/GetFelix/felix-canvas/issues/105)).
 
 **The snapshotter** folds the rooms in `CANVAS_ROOMS` and every room in
 `canvas.rooms`. It watches the cache with the same retained watch, starts

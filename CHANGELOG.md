@@ -14,6 +14,12 @@ version it was tested against.
 ### Changed
 
 - The install, the dev stack and CI run Felix 0.6.2, and the snapshotter uses `felix-client` 0.6.2.
+- The broker no longer sets `FELIX_SUB_QUEUE_BOUND=8192` in the dev stack, the compose install or the chart's
+  CI values. Felix 0.6.0 makes the shared queues behind a connection wait instead of dropping, so the default
+  holds a connection with many subscriptions. A deployment that copied the setting can remove it.
+- The docs no longer call the token, token lifetime and ack settings Felix gaps: Felix closed them, and what is
+  left is tracked in [#105](https://github.com/GetFelix/felix-canvas/issues/105) and
+  [felix-gateway#56](https://github.com/GetFelix/felix-gateway/issues/56).
 
 ### Fixed
 

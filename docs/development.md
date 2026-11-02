@@ -183,14 +183,14 @@ The scope file names the room's streams and caches; the seed creates the same
 ones, so a change to one is a change to both. The Playwright config starts the
 gateway with a copy that has a 6 second member TTL.
 
-Four settings there exist only because of Felix gaps:
+Three things there work around what the stack does not use yet. Felix has
+closed the gaps they were written for:
 
-| Setting | Why | Felix issue |
+| Setting | Why it is still there | Tracked in |
 |---|---|---|
-| `GET /token?sub=` on `dev/idp.mjs` | The seed and the tests need tokens without a browser, and Felix issues them only in exchange for an IdP token | [#954](https://github.com/GetFelix/felix/issues/954) |
-| `FELIX_EXCHANGE_TOKEN_TTL_SECONDS=86400` | A standalone broker reads its node token once, so the default 900 s would end a dev session after 15 minutes | [#955](https://github.com/GetFelix/felix/issues/955) |
-| `FELIX_ACK_ON_COMMIT=true` | Only an ack after the write carries the record's offset, and that is a broker-wide setting | [#956](https://github.com/GetFelix/felix/issues/956) |
-| `FELIX_SUB_QUEUE_BOUND=8192` | The broker's writer queue is per connection and holds one entry per subscription per change, so at the default of 64 a client holding 100 subscriptions on one connection loses changes even at 50 a second, and no metric counts the loss | Not filed yet |
+| `GET /token?sub=` on `dev/idp.mjs` | The seed and the tests need tokens without a browser, and the gateway's sign-in needs ID tokens anyway. Felix's `dev-token` endpoint (`FELIX_BOOTSTRAP_DEV_TOKENS`) answers only on a loopback bootstrap listener, which the seed in another container cannot reach | none; it stays |
+| `FELIX_EXCHANGE_TOKEN_TTL_SECONDS=86400` | The broker's token comes from one exchange and has to last. Felix 0.6 renews it from `FELIX_NODE_REFRESH_TOKEN_FILE`, but the seed does not write a refresh token yet | [#105](https://github.com/GetFelix/felix-canvas/issues/105) |
+| `FELIX_ACK_ON_COMMIT=true` | An ack carries the record's offset only if the broker acks after the write. Felix can do that per connection, but the gateway does not ask for it | [felix-gateway#56](https://github.com/GetFelix/felix-gateway/issues/56) |
 
 ### Three brokers
 
