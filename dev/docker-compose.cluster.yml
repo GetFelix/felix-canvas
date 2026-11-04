@@ -30,6 +30,8 @@ services:
   seed:
     environment:
       CANVAS_REPLICAS: "3"
+      # One refresh chain per broker.
+      CANVAS_BROKER_REFRESH_TOKENS: "3"
       CANVAS_WAIT_FOR_BROKERS: "3"
     healthcheck:
       test: ["CMD-SHELL", "test -f /state/node.token"]
@@ -43,6 +45,7 @@ services:
         condition: service_healthy
     environment: &cluster
       FELIX_NODE_ID: broker-1
+      FELIX_NODE_REFRESH_TOKEN_FILE: /state/node-refresh-1.token
       FELIX_NODE_ADVERTISE_ADDR: 172.30.7.11:5001
       FELIX_CLIENT_ADVERTISE_ADDR: 127.0.0.1:5000
       FELIX_TLS_CERT_EXPORT: /state/broker-1-cert.pem
@@ -66,6 +69,7 @@ services:
     environment:
       <<: *cluster
       FELIX_NODE_ID: broker-2
+      FELIX_NODE_REFRESH_TOKEN_FILE: /state/node-refresh-2.token
       FELIX_NODE_ADVERTISE_ADDR: 172.30.7.12:5001
       FELIX_CLIENT_ADVERTISE_ADDR: 127.0.0.1:5010
       FELIX_TLS_CERT_EXPORT: /state/broker-2-cert.pem
@@ -89,6 +93,7 @@ services:
     environment:
       <<: *cluster
       FELIX_NODE_ID: broker-3
+      FELIX_NODE_REFRESH_TOKEN_FILE: /state/node-refresh-3.token
       FELIX_NODE_ADVERTISE_ADDR: 172.30.7.13:5001
       FELIX_CLIENT_ADVERTISE_ADDR: 127.0.0.1:5020
       FELIX_TLS_CERT_EXPORT: /state/broker-3-cert.pem

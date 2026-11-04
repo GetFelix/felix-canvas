@@ -184,13 +184,12 @@ The scope file names the room's streams and caches; the seed creates the same
 ones, so a change to one is a change to both. The Playwright config starts the
 gateway with a copy that has a 6 second member TTL.
 
-Two things there work around what the stack does not use yet. Felix now
-offers what they were written for:
+Two things there are particular to this stack:
 
-| Setting | Why it is still there | Tracked in |
+| Setting | Why it is there | Tracked in |
 |---|---|---|
 | `GET /token?sub=` on `dev/idp.mjs` | The seed and the tests need tokens without a browser, and the gateway's sign-in needs ID tokens anyway. Felix's `dev-token` endpoint (`FELIX_BOOTSTRAP_DEV_TOKENS`) answers only on a loopback bootstrap listener, which the seed in another container cannot reach | none; it stays |
-| `FELIX_EXCHANGE_TOKEN_TTL_SECONDS=86400` | The broker's token comes from one exchange and has to last. Felix 0.6 renews it from `FELIX_NODE_REFRESH_TOKEN_FILE`, but the seed does not write a refresh token yet | [#105](https://github.com/GetFelix/felix-canvas/issues/105) |
+| `FELIX_EXCHANGE_TOKEN_TTL_SECONDS=86400` | `node.token` and `snapshotter.token` are used as they are, by tests and by hand, and have to outlast a session. The brokers do not depend on it: each renews its own token from `FELIX_NODE_REFRESH_TOKEN_FILE`, which the seed writes with `CANVAS_BROKER_REFRESH_TOKENS` | none; it stays |
 
 ### Three brokers
 

@@ -724,7 +724,7 @@ sequenceDiagram
 1. The browser signs in against the deployment's IdP and joins a room on the gateway with its ID token.
 2. The gateway exchanges the ID token at the control plane, **narrowing** the request to that room's resources with the actions the scope file allows on each: publish and subscribe on the op and presence streams, write on the sequence counters, read on the snapshot cache, and read and write on the member list.
 3. The gateway refuses the join unless the token it got back holds every one of those grants (a resource the scope file marks `optional` may be missing), then opens a Felix connection with it, one per session, and relays.
-4. The token refreshes before it expires. A refresh re-runs RBAC with the same narrowing, so a person removed from a room loses access within one token lifetime.
+4. The token refreshes before it expires. A refresh re-runs RBAC with the same narrowing, so a person removed from a room cannot renew. Removal also revokes their broker tokens, which ends their open streams (see "Taking access away").
 
 The exchange can only narrow what RBAC already grants, never widen it, so a
 bug in the gateway cannot produce a token with more reach than the signed-in
@@ -838,11 +838,14 @@ being listed and folded at once, then every assignment, the role's policies,
 the streams and the caches.
 
 **Taking access away.** A removed person cannot join again: the token
-exchange at their next join finds no role. A session they already have keeps
-working until its Felix token refreshes, because Felix cannot revoke a token
-it issued. Browser sessions' tokens last `FELIX_TOKEN_TTL_SECONDS`, which is
-long today because the broker's own credential shares that setting
-([#105](https://github.com/GetFelix/felix-canvas/issues/105)).
+exchange at their next join finds no role. Removing the role assignment
+(`DELETE /rbac/groupings`) also revokes that person's broker tokens in Felix:
+the brokers refuse them and end the streams they opened, once they next poll
+Felix's revocation feed. That poll runs on the control plane sync interval, and
+a broker that cannot reach the feed enforces the revocation only when it can
+again. The revocation covers the person's tokens for every room, not only this
+one; their next join in another room gets a new token. Deleting a room removes
+each assignment the same way.
 
 **The snapshotter** folds the rooms in `CANVAS_ROOMS` and every room in
 `canvas.rooms`. It watches the cache with the same retained watch, starts

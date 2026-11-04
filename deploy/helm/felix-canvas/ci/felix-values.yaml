@@ -25,7 +25,8 @@ controlplane:
       value: "true"
     - name: FELIX_CONTROLPLANE_OIDC_ALLOWED_ALGORITHMS
       value: ES256,RS256
-    # The snapshotter reads its token once and the broker gets no refresh token (felix-canvas#105).
+    # The felix chart mounts the broker's credential read-only, so it cannot save a
+    # refreshed token, and the snapshotter's token is fixed too.
     - name: FELIX_EXCHANGE_TOKEN_TTL_SECONDS
       value: "2592000"
 broker:

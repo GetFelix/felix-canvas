@@ -7,7 +7,7 @@
 // Every setting is optional and defaults to the development stack in dev/.
 // docs/self-hosting.md describes each one.
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 
 const env = (name, fallback) => process.env[name] || fallback;
 
@@ -15,12 +15,20 @@ const CONTROL_PLANE = env("CANVAS_FELIX_CONTROL_PLANE", "http://controlplane:844
 const BOOTSTRAP = env("CANVAS_FELIX_BOOTSTRAP", "http://controlplane:9095");
 const BOOTSTRAP_TOKEN = env("CANVAS_FELIX_BOOTSTRAP_TOKEN", "dev-bootstrap");
 const STATE = env("CANVAS_STATE_DIR", "/state");
+// Octal modes for the state directory and the token files in it. The defaults
+// let a broker running as another uid (the dev stack) read and write them; an
+// install where the seed and the broker share a uid can tighten both.
+const DIR_MODE = parseInt(env("CANVAS_STATE_DIR_MODE", "777"), 8);
+const FILE_MODE = parseInt(env("CANVAS_TOKEN_FILE_MODE", "644"), 8);
 const TENANT = env("CANVAS_TENANT", "canvas");
 const NAMESPACE = env("CANVAS_NAMESPACE", "default");
 // Felix only issues tokens in exchange for an IdP token, so the service
 // accounts (admin, broker, snapshotter) sign in with dev/idp.mjs, which must
 // be reachable only from inside the deployment. See felix#954.
 const SERVICE_IDP = env("CANVAS_SERVICE_IDP", "http://idp:9400");
+// How many brokers get a refresh token. 0 leaves the brokers on node.token
+// alone, which is all a Kubernetes Secret volume (read-only) can use.
+const REFRESH_TOKENS = Number(process.env.CANVAS_BROKER_REFRESH_TOKENS ?? 0);
 const RETENTION_SECONDS = 30 * 24 * 60 * 60;
 // 3 in the three-broker stack, so a room survives losing any one broker.
 const REPLICAS = Number(process.env.CANVAS_REPLICAS ?? 1);
@@ -89,12 +97,13 @@ const serviceAccount = (name) => principal(service.issuer, name);
 const member = (name) =>
   name.startsWith("group:") ? `group:${ISSUER}#${name.slice(6)}` : principal(ISSUER, name);
 
-async function exchange(subject, body) {
+async function mint(subject, body) {
   const url = `${SERVICE_IDP}/token?sub=${subject}&aud=felix-canvas`;
   const { id_token } = await request("GET", url);
   const exchangeUrl = `${CONTROL_PLANE}/v1/tenants/${TENANT}/token/exchange`;
-  return (await request("POST", exchangeUrl, { token: id_token, body })).felix_token;
+  return request("POST", exchangeUrl, { token: id_token, body });
 }
+const exchange = async (subject, body) => (await mint(subject, body)).felix_token;
 
 const streams = `stream:${TENANT}/${NAMESPACE}/*`;
 const caches = `cache:${TENANT}/${NAMESPACE}/*`;
@@ -165,14 +174,32 @@ await request("POST", `${BOOTSTRAP}/internal/bootstrap/tenants/${TENANT}/initial
 // too. Elsewhere the directory is already the seed's own, or not ours to
 // change, as with a Kubernetes emptyDir.
 await mkdir(STATE, { recursive: true });
-await chmod(STATE, 0o777).catch(() => {});
-const broker = await exchange("canvas-broker", { audience: "felix-controlplane" });
-await writeFile(`${STATE}/node.token`, broker, { mode: 0o644 });
+await chmod(STATE, DIR_MODE).catch(() => {});
+// Temp file and rename, so a broker reading the file never sees half a token.
+async function writeToken(name, token) {
+  const path = `${STATE}/${name}`;
+  await writeFile(`${path}.tmp`, token, { mode: FILE_MODE });
+  await chmod(`${path}.tmp`, FILE_MODE);
+  await rename(`${path}.tmp`, path);
+}
+const brokerAnswer = await mint("canvas-broker", { audience: "felix-controlplane" });
+const broker = brokerAnswer.felix_token;
+await writeToken("node.token", broker);
 const snapshotter = await exchange("canvas-snapshotter", {
   requested: ["stream.subscribe", "cache.read", "cache.write"],
 });
-await writeFile(`${STATE}/snapshotter.token`, snapshotter, { mode: 0o644 });
+await writeToken("snapshotter.token", snapshotter);
 console.log(`wrote node.token and snapshotter.token to ${STATE}`);
+
+// A refresh token is spent when used, so each broker needs a chain of its own:
+// two sharing one read as a replay and lose it. A broker writes its file back
+// at every refresh, so the directory must be writable by it.
+for (let n = 1; n <= REFRESH_TOKENS; n++) {
+  const { refresh_token } =
+    n === 1 ? brokerAnswer : await mint("canvas-broker", { audience: "felix-controlplane" });
+  await writeToken(`node-refresh-${n}.token`, `${refresh_token}\n`);
+}
+if (REFRESH_TOKENS > 0) console.log(`wrote ${REFRESH_TOKENS} broker refresh tokens to ${STATE}`);
 
 // Placement places a shard on whichever brokers are live when it is created,
 // and a shard placed on fewer than its replication factor waits for copies

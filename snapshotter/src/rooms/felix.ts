@@ -8,6 +8,9 @@ import { REGISTRY_CACHE, decodeRecord, encodeRecord, type RoomRecord } from "./r
 /** A token this close to expiry is replaced before use. */
 const RENEW_BEFORE_S = 5 * 60;
 
+/** Longest a call to the provider or the control plane may take. */
+export const CALL_TIMEOUT_MS = 15_000;
+
 export interface FelixSettings {
   controlPlane: string;
   tenant: string;
@@ -19,16 +22,18 @@ export interface FelixSettings {
 }
 
 /**
- * Felix tokens for the `canvas-admin` service account, which the seed made a
- * tenant admin. Felix issues tokens only in exchange for an ID token, so this
+ * Felix tokens for a service account the seed created, `canvas-admin` unless
+ * told otherwise. Felix issues tokens only in exchange for an ID token, so this
  * signs in with the internal provider first, as the seed does.
  */
 export class ServiceTokens {
   readonly #settings: FelixSettings;
+  readonly #subject: string;
   readonly #cached = new Map<string, string>();
 
-  constructor(settings: FelixSettings) {
+  constructor(settings: FelixSettings, subject = "canvas-admin") {
     this.#settings = settings;
+    this.#subject = subject;
   }
 
   /** A token for the control plane's API. */
@@ -41,16 +46,34 @@ export class ServiceTokens {
     return this.#token("data", { requested: ["cache.read", "cache.write"] });
   }
 
+  /**
+   * A new token for the brokers carrying `requested`, never a cached one. For
+   * a client's token provider, which asks only when it wants a replacement.
+   * Aborting `signal` abandons the sign-in.
+   */
+  fresh(requested: string[], signal?: AbortSignal): Promise<string> {
+    return this.#mint({ requested }, signal);
+  }
+
   async #token(kind: string, body: object): Promise<string> {
     const cached = this.#cached.get(kind);
     if (cached && !expiring(cached)) return cached;
-    const { serviceIdp, controlPlane, tenant } = this.#settings;
-    const minted = await call("GET", `${serviceIdp}/token?sub=canvas-admin&aud=felix-canvas`);
-    const exchange = `${controlPlane}/v1/tenants/${tenant}/token/exchange`;
-    const answer = await call("POST", exchange, { token: minted.id_token as string, body });
-    const token = answer.felix_token as string;
+    const token = await this.#mint(body);
     this.#cached.set(kind, token);
     return token;
+  }
+
+  async #mint(body: object, signal?: AbortSignal): Promise<string> {
+    const { serviceIdp, controlPlane, tenant } = this.#settings;
+    const signIn = `${serviceIdp}/token?sub=${this.#subject}&aud=felix-canvas`;
+    const minted = await call("GET", signIn, { signal });
+    const exchange = `${controlPlane}/v1/tenants/${tenant}/token/exchange`;
+    const answer = await call("POST", exchange, {
+      token: minted.id_token as string,
+      body,
+      signal,
+    });
+    return answer.felix_token as string;
   }
 }
 
@@ -187,9 +210,17 @@ export class ControlPlaneProvisioner implements Provisioner {
 async function call(
   method: string,
   url: string,
-  { token, body, tolerate = [] }: { token?: string; body?: object; tolerate?: number[] } = {},
+  {
+    token,
+    body,
+    tolerate = [],
+    signal,
+  }: { token?: string; body?: object; tolerate?: number[]; signal?: AbortSignal | undefined } = {},
 ): Promise<Record<string, unknown>> {
+  // A stalled provider or control plane must not hold a caller forever.
+  const timeout = AbortSignal.timeout(CALL_TIMEOUT_MS);
   const response = await fetch(url, {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     method,
     headers: {
       "content-type": "application/json",

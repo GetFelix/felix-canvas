@@ -30,10 +30,6 @@ services:
       # Felix accepts only ES256 ID tokens unless told otherwise, and most
       # providers sign with RS256.
       FELIX_CONTROLPLANE_OIDC_ALLOWED_ALGORITHMS: ${FELIX_OIDC_ALGORITHMS:-ES256,RS256}
-      # The snapshotter reads its token once at startup, and the seed gives the
-      # broker no refresh token (felix-canvas#105), so the tokens must outlive
-      # the time between restarts.
-      FELIX_EXCHANGE_TOKEN_TTL_SECONDS: ${FELIX_TOKEN_TTL_SECONDS:-2592000}
       RUST_LOG: ${FELIX_LOG:-info}
     volumes:
       - controlplane-data:/var/lib/felix
@@ -64,8 +60,10 @@ services:
     restart: unless-stopped
 
   # Makes the broker a certificate on first start; see docs/self-hosting.md
-  # to bring your own. Also hands the state volume to the uid every other
-  # canvas and Felix container runs as.
+  # to bring your own. Also hands the two volumes to the uid every other
+  # canvas and Felix container runs as. `state` holds the certificate and is
+  # all the gateway sees; `broker-tokens` holds the broker's credentials and
+  # only the seed and the broker mount it.
   certs:
     image: ghcr.io/getfelix/felix-canvas:${CANVAS_VERSION:-0.3.2}
     user: "0:0"
@@ -73,7 +71,10 @@ services:
     command:
       - |
         set -e
-        chown 65532:65532 /state
+        chown 65532:65532 /state /tokens
+        chmod 700 /tokens
+        # Earlier installs kept the tokens in /state, where the gateway can read them.
+        rm -f /state/node.token /state/snapshotter.token /state/node-refresh-*.token /state/seeded
         if [ ! -f /state/broker.crt ]; then
           openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 \
             -subj /CN=broker -addext subjectAltName=DNS:broker,DNS:localhost \
@@ -83,6 +84,7 @@ services:
         fi
     volumes:
       - state:/state
+      - broker-tokens:/tokens
 
   seed:
     image: ghcr.io/getfelix/felix-canvas-snapshotter:${CANVAS_VERSION:-0.3.2}
@@ -90,6 +92,11 @@ services:
     environment:
       CANVAS_FELIX_BOOTSTRAP_TOKEN: ${FELIX_BOOTSTRAP_TOKEN}
       CANVAS_SERVICE_IDP: http://tokens:9400
+      CANVAS_BROKER_REFRESH_TOKENS: "1"
+      # Everything it writes is the broker's credential, in a volume of its own.
+      CANVAS_STATE_DIR: /tokens
+      CANVAS_STATE_DIR_MODE: "700"
+      CANVAS_TOKEN_FILE_MODE: "600"
       CANVAS_TENANT: ${CANVAS_TENANT:-canvas}
       CANVAS_NAMESPACE: ${CANVAS_NAMESPACE:-default}
       CANVAS_ROOMS: ${CANVAS_ROOMS}
@@ -100,7 +107,7 @@ services:
       CANVAS_OIDC_SUBJECT_CLAIM: ${CANVAS_OIDC_SUBJECT_CLAIM:-sub}
       CANVAS_OIDC_GROUPS_CLAIM: ${CANVAS_OIDC_GROUPS_CLAIM:-}
     volumes:
-      - state:/state
+      - broker-tokens:/tokens
     depends_on:
       controlplane:
         condition: service_healthy
@@ -113,7 +120,10 @@ services:
     image: ghcr.io/getfelix/felix-broker:${FELIX_VERSION:-0.6.2}
     environment:
       FELIX_CONTROLPLANE_URL: http://controlplane:8443
-      FELIX_NODE_TOKEN_FILE: /state/node.token
+      FELIX_NODE_TOKEN_FILE: /tokens/node.token
+      # The broker renews its own token and writes the replacement refresh
+      # token back, so /tokens is writable.
+      FELIX_NODE_REFRESH_TOKEN_FILE: /tokens/node-refresh-1.token
       FELIX_DURABLE_STORAGE_DIR: /var/lib/felix
       # Each log a room writes to (its op stream, caches and group state)
       # reserves a whole segment on disk up front, and the default is 256 MiB.
@@ -129,6 +139,7 @@ services:
     volumes:
       - felix-data:/var/lib/felix
       - state:/state:ro
+      - broker-tokens:/tokens
     depends_on:
       seed:
         condition: service_completed_successfully
@@ -140,7 +151,9 @@ services:
       CANVAS_FELIX_BROKERS: broker:5000
       CANVAS_FELIX_SERVER_NAME: broker
       CANVAS_FELIX_CA_FILE: /state/broker.crt
-      CANVAS_FELIX_TOKEN_FILE: /state/snapshotter.token
+      # It signs in and renews its own token, as the rooms service does.
+      CANVAS_SERVICE_IDP: http://tokens:9400
+      CANVAS_FELIX_CONTROL_PLANE: http://controlplane:8443
       CANVAS_TENANT: ${CANVAS_TENANT:-canvas}
       CANVAS_NAMESPACE: ${CANVAS_NAMESPACE:-default}
       CANVAS_ROOMS: ${CANVAS_ROOMS}
@@ -149,6 +162,8 @@ services:
     depends_on:
       broker:
         condition: service_healthy
+      tokens:
+        condition: service_started
     restart: unless-stopped
 
   gateway:
@@ -178,4 +193,7 @@ services:
 volumes:
   controlplane-data:
   felix-data:
+  # The certificate, which the gateway and the other services read.
   state:
+  # The broker's credentials, which only the seed and the broker mount.
+  broker-tokens:

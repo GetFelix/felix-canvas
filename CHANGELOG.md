@@ -25,8 +25,21 @@ version it was tested against.
 - The broker no longer sets `FELIX_ACK_ON_COMMIT=true`. A durable stream acks after the write by default
   since Felix 0.6.0, and every stream the canvas publishes its changes to is durable. A deployment that copied
   the setting can remove it.
-- The docs no longer call the token and token-lifetime settings Felix gaps: Felix now offers what they were for,
-  and the install not using it yet is tracked in [#105](https://github.com/GetFelix/felix-canvas/issues/105).
+- The docs no longer call the token and token-lifetime settings Felix gaps: Felix now offers what they were for.
+- The compose install no longer sets a 30 day token lifetime or asks for a restart within it (#105). The seed
+  gives the broker a refresh token (`CANVAS_BROKER_REFRESH_TOKENS`, one per broker) and the broker renews its own
+  token from `FELIX_NODE_REFRESH_TOKEN_FILE`; the snapshotter signs in with the `tokens` service when
+  `CANVAS_SERVICE_IDP` is set and renews its own. `FELIX_TOKEN_TTL_SECONDS` is gone, so a session's token lasts
+  Felix's 15 minutes. The broker's tokens live in a new `broker-tokens` volume that only the seed and the broker
+  mount, so the gateway cannot read them; the seed writes them atomically and, with `CANVAS_STATE_DIR_MODE` and
+  `CANVAS_TOKEN_FILE_MODE`, as owner-only files. An install that keeps its own copy of the compose file needs the
+  new volume and the broker's `FELIX_NODE_TOKEN_FILE` and `FELIX_NODE_REFRESH_TOKEN_FILE` under `/tokens`. The dev
+  stack's brokers renew the same way. `certs` deletes the old token files from `state`. The Kubernetes install still sets a 30 day lifetime, because the felix
+  chart's credential Secret is read-only.
+- The docs no longer say Felix cannot revoke a token. Removing a member deletes their role assignment, which
+  Felix 0.6.2 turns into a revocation: the brokers refuse that person's broker tokens and end their streams once
+  they next poll the revocation feed.
+- The snapshotter's token requests stop when the client aborts them and give up after 15 seconds.
 - The gateway is felix-gateway 0.8.0, and the page uses `felix-gateway-client` 0.8.0. The
   releases since 0.3.3 only add opt-in features the canvas does not ask for, so its setup and
   scope file do not change. Tested against Felix 0.6.2.
