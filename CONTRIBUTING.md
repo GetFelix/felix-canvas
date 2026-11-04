@@ -33,10 +33,10 @@ This page is how code and pull requests should read.
 
 - One pull request per milestone, closing that milestone's issues.
 - CI must pass before review.
-- Add a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) for
-  anything a user or an operator would notice, under `Added`, `Changed`,
-  `Fixed` or `Removed`, ending with the pull request number. That section
-  becomes the release notes.
+- Record anything a user or an operator would notice, ending with the pull request number as a fragment in `changelog.d/`
+  (`<name>.<section>.md`, see [changelog.d/README.md](changelog.d/README.md)). Never edit
+  `CHANGELOG.md` directly: fragments are merged into it at release time, so pull requests
+  don't conflict on the changelog.
 - No AI attribution in commits or pull request descriptions.
 - List any design calls under "Review notes", and any Felix gaps you hit under
   "Felix gaps found", with the Felix issue each one is filed as.

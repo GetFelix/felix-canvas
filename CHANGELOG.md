@@ -18,7 +18,6 @@ version it was tested against.
 
 ### Changed
 
-- The install, the dev stack and CI run Felix 0.6.2, and the snapshotter uses `felix-client` 0.6.2.
 - The broker no longer sets `FELIX_SUB_QUEUE_BOUND=8192` in the dev stack, the compose install or the chart's
   CI values. Felix 0.6.0 makes the shared queues behind a connection wait instead of dropping, so the default
   holds a connection with many subscriptions. A deployment that copied the setting can remove it.
