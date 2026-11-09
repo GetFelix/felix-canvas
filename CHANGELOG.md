@@ -11,13 +11,22 @@ version it was tested against.
 
 ## [Unreleased]
 
-### Added
+## [0.4.0] - 2026-11-09
 
+This release uses Felix 0.7.0 and needs a Felix 0.7 broker and control plane. The compose
+install, the Helm chart's CI values and the dev stack run the 0.7.0 images, and the snapshotter
+uses `felix-client` 0.7.0. An existing install upgrades its Felix images together with the canvas
+images.
+
+### Security
+- The `?gateway=` URL override now works only in dev builds. A crafted link could
+  otherwise point the session, and the ID token it sends, at another server.
+
+### Added
 - A nightly workflow runs the gateway, two-browser and failover checks against Felix main and opens an issue
   labelled `felix-nightly` when they fail.
 
 ### Changed
-
 - The broker no longer sets `FELIX_SUB_QUEUE_BOUND=8192` in the dev stack, the compose install or the chart's
   CI values. Felix 0.6.0 makes the shared queues behind a connection wait instead of dropping, so the default
   holds a connection with many subscriptions. A deployment that copied the setting can remove it.
@@ -41,18 +50,14 @@ version it was tested against.
 - The snapshotter's token requests stop when the client aborts them and give up after 15 seconds.
 - The gateway is felix-gateway 0.8.0, and the page uses `felix-gateway-client` 0.8.0. The
   releases since 0.3.3 only add opt-in features the canvas does not ask for, so its setup and
-  scope file do not change. Tested against Felix 0.6.2.
+  scope file do not change.
+- The install, the dev stack and CI run Felix 0.7.0, and the snapshotter uses `felix-client` 0.7.0.
 
 ### Fixed
-
 - Joining a room on a replicated Felix 0.6.0 cluster no longer hangs at "Loading the canvas"
   when the room's log ends in a new leader's generation-start record, which holds no change
   and is never delivered. The page now waits only for the offsets Felix says a read will deliver.
-
-### Security
-
-- The `?gateway=` URL override now works only in dev builds. A crafted link could
-  otherwise point the session, and the ID token it sends, at another server.
+- The release workflow now checks `changelog.d` in the tagged commit for leftover fragments, not the one on the branch it runs from.
 
 ## [0.3.2] - 2026-10-11
 
