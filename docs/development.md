@@ -38,7 +38,7 @@ cargo install --locked felix-gateway --version 0.8.0
 ```
 
 1. Start Felix. This pulls `ghcr.io/getfelix/felix-broker` and
-   `felix-controlplane` at `0.6.2`, starts a stand-in sign-in service on
+   `felix-controlplane` at `0.7.0`, starts a stand-in sign-in service on
    `127.0.0.1:9400`, creates the `lobby` and `studio` rooms, and writes the
    snapshotter's token and the broker's certificate to `dev/state/`:
 
