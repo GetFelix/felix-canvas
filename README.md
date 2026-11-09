@@ -83,8 +83,8 @@ install from the
 start it:
 
 ```bash
-curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.3.2/felix-canvas-compose-0.3.2.tar.gz | tar xz
-cd felix-canvas-compose-0.3.2
+curl -fsSL https://github.com/GetFelix/felix-canvas/releases/download/v0.4.0/felix-canvas-compose-0.4.0.tar.gz | tar xz
+cd felix-canvas-compose-0.4.0
 sed -i.bak \
   -e "s|^FELIX_BOOTSTRAP_TOKEN=.*|FELIX_BOOTSTRAP_TOKEN=$(openssl rand -base64 32)|" \
   -e "s|^FELIX_RAFT_PEER_TOKEN=.*|FELIX_RAFT_PEER_TOKEN=$(openssl rand -base64 32)|" .env
