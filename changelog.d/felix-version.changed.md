@@ -1,0 +1,1 @@
+- The install, the dev stack and CI run Felix 0.7.1, and the snapshotter uses `felix-client` 0.7.1.
