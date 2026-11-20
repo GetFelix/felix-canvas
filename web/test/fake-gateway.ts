@@ -27,6 +27,8 @@ const op = (seq: number): Op =>
 export class Room {
   readonly scope: FakeScope;
   snapshotAt: number | null = null;
+  /** The highest op seq appended for each session name, as the gateway keeps it. */
+  readonly seqs = new Map<string, number>();
   /** Runs while a snapshot read is in flight, before it is answered. */
   duringSnapshotRead: () => void = () => {};
 
@@ -83,6 +85,10 @@ export class Room {
 export class FakeGateway extends ScopeConnection {
   readonly requests: string[];
   presenceSubscribes = 0;
+  /** The join this connection was opened with, set by the test's opener. */
+  join: Record<string, string> = {};
+  /** Every publish that reached the gateway, with the seq it carried. */
+  readonly published: { seq: number | undefined; appended: boolean }[] = [];
 
   constructor(
     readonly room: Room,
@@ -99,9 +105,21 @@ export class FakeGateway extends ScopeConnection {
     super.subscribe(stream, from);
   }
 
-  override async publish(stream: string, payload: Uint8Array): Promise<number | null> {
+  /** Like the gateway with `idempotent_publish`: a seq at or below the session's last is not appended. */
+  override async publish(
+    stream: string,
+    payload: Uint8Array,
+    ack = true,
+    seq?: number,
+  ): Promise<number | null> {
     if (stream !== "ops") return null;
-    return super.publish(stream, payload);
+    const key = `${this.join.session}`;
+    const seen = this.room.seqs.get(key);
+    const duplicate = seq !== undefined && seen !== undefined && seq <= seen;
+    this.published.push({ seq, appended: !duplicate });
+    if (duplicate) return null;
+    if (seq !== undefined) this.room.seqs.set(key, seq);
+    return super.publish(stream, payload, ack);
   }
 
   /** Only the snapshot is read: cache "snap", key "latest". */

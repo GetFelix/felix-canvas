@@ -284,3 +284,35 @@ describe("losing the connection to the room", () => {
     await until(() => connection.presenceSubscribes === 2);
   });
 });
+
+describe("resending after a reconnect", () => {
+  it("names the same session and numbers each publish the same, so a copy that landed is not appended again", async () => {
+    const room = new Room();
+    const connections: FakeGateway[] = [];
+    const session = new Session("ws://fake", { room: "lobby", token: "t" }, async (_url, join) => {
+      const connection = new FakeGateway(room, []);
+      connection.join = join;
+      connections.push(connection);
+      return connection;
+    });
+    session.start();
+    await until(() => session.caughtUp && connections.length === 1);
+
+    // The answer is lost, so the edit stays pending and is sent again.
+    connections[0]!.losingAcks = true;
+    await until(() =>
+      session.submit("create", 1n, { type: "rect", x: 0, y: 0, w: 10, h: 10, z: "V" }),
+    );
+    await until(() => connections[0]!.published.length === 1);
+    await until(() => connections.length === 2 && session.caughtUp);
+    await until(() => connections[1]!.published.length === 1);
+
+    const [first, second] = connections;
+    expect(first!.join.session).toMatch(/^[0-9a-f]{16}$/);
+    expect(second!.join.session).toBe(first!.join.session);
+    expect(first!.published[0]!.seq).toBeDefined();
+    expect(second!.published[0]!.seq).toBe(first!.published[0]!.seq);
+    expect(second!.published[0]!.appended).toBe(false);
+    expect(room.log.length).toBe(1);
+  });
+});

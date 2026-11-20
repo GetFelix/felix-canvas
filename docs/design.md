@@ -988,8 +988,11 @@ different one, and the client follows the room to its new owner:
 
 - A publish that was in flight fails or times out. The browser cannot tell
   whether it landed, so it closes its gateway connection, reconnects, and sends
-  every unacknowledged edit again in `seq` order. One that had landed lands a
-  second time and the fold's `(sid, seq)` dedupe drops it.
+  every unacknowledged edit again in `seq` order. The join names the page's
+  session and each publish carries its edit's `seq`, so a gateway with the
+  `idempotent_publish` feature does not append a copy that had landed. Against
+  a gateway without it, the copy lands a second time. Either way the fold's
+  `(sid, seq)` dedupe drops it.
 - The op subscription follows the log to its new owner from the next offset.
   When it cannot, it ends, and the browser subscribes again from its last
   applied offset plus one, exactly as after a gap.
