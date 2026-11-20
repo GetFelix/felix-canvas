@@ -1,0 +1,22 @@
+name: tmp lock
+on:
+  push:
+    branches: [feat/idempotent-publish]
+    paths: [.github/workflows/tmp-lock.yml]
+permissions:
+  contents: write
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --package-lock-only --ignore-scripts
+      - run: |
+          git config user.name "Gabriel Loewen"
+          git config user.email gabrielloewen@outlook.com
+          git add package-lock.json
+          git commit -m "chore: lock felix-gateway-client 0.10.0"
+          git push

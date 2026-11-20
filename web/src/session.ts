@@ -40,6 +40,7 @@ export type Gateway = Pick<
   | "onError"
   | "onClose"
   | "subscribe"
+  | "publish"
   | "counterAdd"
   | "cacheGet"
   | "onCacheEntries"
@@ -49,14 +50,7 @@ export type Gateway = Pick<
   | "cacheWatch"
   | "throttle"
   | "close"
-> & {
-  /**
-   * `seq` rides on the publish for a gateway with `idempotent_publish`. The
-   * pinned felix-gateway-client predates it and drops the argument, so the
-   * seq reaches the wire once the client is bumped to a release that has it.
-   */
-  publish(stream: string, payload: Uint8Array, ack?: boolean, seq?: number): Promise<number | null>;
-};
+>;
 
 /** The gateway feature that lets a resent publish be answered, not appended again. */
 export const IDEMPOTENT_PUBLISH = "idempotent_publish";
