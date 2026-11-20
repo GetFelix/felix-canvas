@@ -278,6 +278,18 @@ describe("Replica", () => {
     expect(stateHash(replica.confirmed)).toBe(stateHash(inOrder.confirmed));
   });
 
+  it("closes blank offsets a re-read record reports after a live copy undercounted them", () => {
+    const replica = new Replica(me);
+    replica.deliver(0, 0, encodeOp(rect(ana, 0, 1n)));
+    // Offsets 1 and 2 hold no event, but the live feed only saw one blank.
+    replica.deliver(3, 1, encodeOp(move(ana, 1, 1n, 5)));
+    expect(replica.next).toBe(1);
+    // Reading again from offset 1 reports both blanks.
+    replica.deliver(3, 2, encodeOp(move(ana, 1, 1n, 5)));
+    expect(replica.next).toBe(4);
+    expect(replica.hasGap).toBe(false);
+  });
+
   it("confirms pending edits a snapshot already holds", () => {
     const replica = new Replica(me);
     replica.edit(rect(me, 3, 1n));
