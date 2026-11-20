@@ -1,0 +1,1 @@
+- A publish resent after a reconnect carries the page's session name and the edit's seq, and the join asks for the gateway's `idempotent_publish` feature, so a gateway that has it does not append the copy twice (felix-gateway#75). The gateway is felix-gateway 0.10.0 and the page uses `felix-gateway-client` 0.10.0.

@@ -51,6 +51,12 @@ export type Gateway = Pick<
   | "throttle"
   | "close"
 >;
+
+/** The gateway feature that lets a resent publish be answered, not appended again. */
+export const IDEMPOTENT_PUBLISH = "idempotent_publish";
+
+const connectGateway = (url: string, join: Join): Promise<Gateway> =>
+  GatewayClient.connect(url, join, [IDEMPOTENT_PUBLISH]);
 import { Replica, type PendingEdit } from "./replica.js";
 
 /** Seqs reserved from the counter at a time. Another block is fetched at half. */
@@ -185,7 +191,7 @@ export class Session {
   constructor(
     url: string,
     join: RoomJoin,
-    open: (url: string, join: Join) => Promise<Gateway> = GatewayClient.connect,
+    open: (url: string, join: Join) => Promise<Gateway> = connectGateway,
   ) {
     this.#url = url;
     this.#join = join;
@@ -325,7 +331,12 @@ export class Session {
   async #connect(): Promise<void> {
     let client: Gateway;
     try {
-      client = await this.#open(this.#url, this.#join);
+      // The same name on every reconnect is what lets the gateway recognise a
+      // resend. A gateway without the feature ignores the extra key.
+      client = await this.#open(this.#url, {
+        ...this.#join,
+        session: this.sid.toString(16).padStart(16, "0"),
+      });
     } catch {
       this.#retry();
       return;
@@ -503,7 +514,9 @@ export class Session {
     edit.sentAt = sentAt;
     // A failed publish may or may not have landed. Reconnecting resends every
     // pending op in order, which keeps the seq-order rule the dedupe needs.
-    client.publish(OPS, encodeOp(edit.op)).then(
+    // Each edit keeps its seq across resends, so the gateway can drop a copy
+    // that already landed. A gateway without the feature ignores it.
+    client.publish(OPS, encodeOp(edit.op), true, edit.op.seq).then(
       () => this.ackTrips.add(performance.now() - sentAt),
       () => client.close(),
     );
