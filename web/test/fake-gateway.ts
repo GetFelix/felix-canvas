@@ -86,7 +86,7 @@ export class FakeGateway extends ScopeConnection {
   readonly requests: string[];
   presenceSubscribes = 0;
   /** The join this connection was opened with, set by the test's opener. */
-  join: Record<string, string> = {};
+  join: Record<string, string | undefined> = {};
   /** Every publish that reached the gateway, with the seq it carried. */
   readonly published: { seq: number | undefined; appended: boolean }[] = [];
 
@@ -113,12 +113,12 @@ export class FakeGateway extends ScopeConnection {
     seq?: number,
   ): Promise<number | null> {
     if (stream !== "ops") return null;
-    const key = `${this.join.session}`;
-    const seen = this.room.seqs.get(key);
+    const key = this.join.session;
+    const seen = key === undefined ? undefined : this.room.seqs.get(key);
     const duplicate = seq !== undefined && seen !== undefined && seq <= seen;
     this.published.push({ seq, appended: !duplicate });
     if (duplicate) return null;
-    if (seq !== undefined) this.room.seqs.set(key, seq);
+    if (seq !== undefined && key !== undefined) this.room.seqs.set(key, seq);
     return super.publish(stream, payload, ack);
   }
 
