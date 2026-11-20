@@ -1,1 +1,0 @@
-- A session no longer sticks on "Catching up" after a leader change: a record read again with more blank offsets before it than its first copy reported now closes the gap instead of being dropped as a duplicate (#117).
