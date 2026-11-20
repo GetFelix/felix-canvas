@@ -11,6 +11,17 @@ version it was tested against.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
+### Added
+- A publish resent after a reconnect carries the page's session name and the edit's seq, and the join asks for the gateway's `idempotent_publish` feature, so a gateway that has it does not append the copy twice (felix-gateway#75). The gateway is felix-gateway 0.10.0 and the page uses `felix-gateway-client` 0.10.0.
+
+### Changed
+- The install, the dev stack and CI run Felix 0.7.2, and the snapshotter uses `felix-client` 0.7.2.
+
+### Fixed
+- A session no longer sticks on "Catching up" after a leader change: a record read again with more blank offsets before it than its first copy reported now closes the gap instead of being dropped as a duplicate (#117).
+
 ## [0.4.0] - 2026-11-09
 
 This release uses Felix 0.7.0 and needs a Felix 0.7 broker and control plane. The compose
