@@ -140,8 +140,17 @@ export class Replica {
    * it confirmed, which may include buffered records it unblocked.
    */
   deliver(offset: number, skippedBefore: number, payload: Uint8Array): PendingEdit[] {
-    if (offset < this.#next || this.#ahead.has(offset)) return [];
-    this.#ahead.set(offset, { skippedBefore, payload });
+    if (offset < this.#next) return [];
+    // A record read again can report more blank offsets before it than the
+    // copy buffered from the live feed, which could only count what that feed
+    // had seen. Keeping the smaller count leaves the blanks looking like a gap
+    // that no resubscribe ever fills.
+    const held = this.#ahead.get(offset);
+    if (held) {
+      held.skippedBefore = Math.max(held.skippedBefore, skippedBefore);
+    } else {
+      this.#ahead.set(offset, { skippedBefore, payload });
+    }
     return this.#drain();
   }
 
